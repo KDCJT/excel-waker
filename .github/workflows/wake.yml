@@ -1,9 +1,9 @@
-name: Wake Up Excel
+name: Wake Up Excel (Pro)
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # 每5分钟运行一次
-  workflow_dispatch: # 允许手动点击运行
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   wake-up:
@@ -15,12 +15,11 @@ jobs:
           python-version: '3.9'
 
       - name: Install Selenium
-        run: |
-          pip install selenium webdriver-manager
+        run: pip install selenium webdriver-manager
 
-      - name: Visit Excel Links with Chrome
+      - name: Visit Links
         env:
-          # 这里已经填好了你的 M问卷 和 S问卷 的分享链接
+          # ★★★ 你的链接保持不变 ★★★
           LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
           LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
         run: |
@@ -30,23 +29,37 @@ jobs:
           import time
           import os
 
-          def visit(url):
-              print(f'>>> Starting Chrome to visit: {url}')
+          def visit_and_hold(url, name):
+              print(f'>>> [{name}] 启动浏览器...')
               options = Options()
               options.add_argument('--headless')
               options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
               
               driver = webdriver.Chrome(options=options)
               try:
+                  # 1. 首次访问
                   driver.get(url)
-                  print('>>> Page loaded. Waiting 30 seconds for Microsoft Sync...')
-                  time.sleep(30)
-                  print('>>> Done.')
+                  print(f'>>> [{name}] 页面已加载，等待 15秒...')
+                  time.sleep(15)
+                  
+                  # 2. 强制刷新 (关键！这能迫使服务器重新从 Forms 拿数据)
+                  print(f'>>> [{name}] 正在执行强制刷新...')
+                  driver.refresh()
+                  time.sleep(10)
+
+                  # 3. 模拟滚动 (防止被判定为僵尸连接)
+                  driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
+                  
+                  # 4. 长时间等待写入
+                  print(f'>>> [{name}] 保持连接 60秒，确保数据写入...')
+                  time.sleep(60)
+                  
+                  print(f'>>> [{name}] 唤醒完成。')
               except Exception as e:
                   print(f'Error: {e}')
               finally:
                   driver.quit()
 
-          visit(os.environ['LINK_M'])
-          visit(os.environ['LINK_S'])
+          visit_and_hold(os.environ['LINK_M'], 'M问卷')
+          visit_and_hold(os.environ['LINK_S'], 'S问卷')
           "
