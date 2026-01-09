@@ -1,0 +1,52 @@
+name: Wake Up Excel
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # 每5分钟运行一次
+  workflow_dispatch: # 允许手动点击运行
+
+jobs:
+  wake-up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Selenium
+        run: |
+          pip install selenium webdriver-manager
+
+      - name: Visit Excel Links with Chrome
+        env:
+          # 这里已经填好了你的 M问卷 和 S问卷 的分享链接
+          LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
+          LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
+        run: |
+          python -c "
+          from selenium import webdriver
+          from selenium.webdriver.chrome.options import Options
+          import time
+          import os
+
+          def visit(url):
+              print(f'>>> Starting Chrome to visit: {url}')
+              options = Options()
+              options.add_argument('--headless')
+              options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+              
+              driver = webdriver.Chrome(options=options)
+              try:
+                  driver.get(url)
+                  print('>>> Page loaded. Waiting 30 seconds for Microsoft Sync...')
+                  time.sleep(30)
+                  print('>>> Done.')
+              except Exception as e:
+                  print(f'Error: {e}')
+              finally:
+                  driver.quit()
+
+          visit(os.environ['LINK_M'])
+          visit(os.environ['LINK_S'])
+          "
