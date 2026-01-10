@@ -1,12 +1,12 @@
-name: Wake Up Excel (Pro)
+name: Real Human Stare
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+    - cron: '*/5 * * * *' # 每5分钟运行
+  workflow_dispatch: # 允许手动点击测试
 
 jobs:
-  wake-up:
+  stare-at-excel:
     runs-on: ubuntu-latest
     steps:
       - name: Set up Python
@@ -17,9 +17,9 @@ jobs:
       - name: Install Selenium
         run: pip install selenium webdriver-manager
 
-      - name: Visit Links
+      - name: Open and Watch
         env:
-          # ★★★ 你的链接保持不变 ★★★
+          # 你的原始分享链接
           LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
           LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
         run: |
@@ -29,37 +29,43 @@ jobs:
           import time
           import os
 
-          def visit_and_hold(url, name):
-              print(f'>>> [{name}] 启动浏览器...')
+          def stare_at_page(url, name):
+              print(f'>>> [{name}] 启动浏览器准备围观...')
+              
               options = Options()
               options.add_argument('--headless')
-              options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+              # 伪装成最新的 Chrome Windows 版
+              options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
+              options.add_argument('--window-size=1920,1080')
               
               driver = webdriver.Chrome(options=options)
               try:
-                  # 1. 首次访问
+                  # 1. 打开原始网页
+                  print(f'>>> [{name}] 正在打开网页...')
                   driver.get(url)
-                  print(f'>>> [{name}] 页面已加载，等待 15秒...')
+                  
+                  # 2. 等待网页加载 (Excel Online 加载很慢，给它 15秒)
                   time.sleep(15)
-                  
-                  # 2. 强制刷新 (关键！这能迫使服务器重新从 Forms 拿数据)
-                  print(f'>>> [{name}] 正在执行强制刷新...')
-                  driver.refresh()
-                  time.sleep(10)
+                  print(f'>>> [{name}] 网页标题: {driver.title} (如果看到Excel字样说明加载成功)')
 
-                  # 3. 模拟滚动 (防止被判定为僵尸连接)
-                  driver.execute_script('window.scrollTo(0, document.body.scrollHeight);')
+                  # 3. 开始'盯梢'模式 - 持续 60 秒
+                  print(f'>>> [{name}] 开始驻留监测 (60秒)...')
                   
-                  # 4. 长时间等待写入
-                  print(f'>>> [{name}] 保持连接 60秒，确保数据写入...')
-                  time.sleep(60)
+                  for i in range(6):
+                      # 每10秒动一下，防止被判定为离线
+                      time.sleep(10)
+                      print(f'   ...已停留 { (i+1)*10 } 秒，正在接收数据同步...')
+                      # 模拟鼠标滚动，触发懒加载
+                      driver.execute_script('window.scrollBy(0, 100)')
                   
-                  print(f'>>> [{name}] 唤醒完成。')
+                  print(f'>>> [{name}] 监控结束，数据应已写入硬盘。')
+                  
               except Exception as e:
                   print(f'Error: {e}')
               finally:
                   driver.quit()
 
-          visit_and_hold(os.environ['LINK_M'], 'M问卷')
-          visit_and_hold(os.environ['LINK_S'], 'S问卷')
+          # 执行任务
+          stare_at_page(os.environ['LINK_M'], 'M问卷')
+          stare_at_page(os.environ['LINK_S'], 'S问卷')
           "
