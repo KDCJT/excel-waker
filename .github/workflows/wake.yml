@@ -1,4 +1,4 @@
-name: Wake Up - Forced Login
+name: Wake Up - Click Login
 
 on:
   schedule:
@@ -29,8 +29,10 @@ jobs:
 
       - name: Run Script
         env:
+          # 你的链接
           LINK_M: ${{ secrets.LINK_M }}
           LINK_S: ${{ secrets.LINK_S }}
+          # 工具人账号密码
           BOT_EMAIL: ${{ secrets.BOT_EMAIL }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
         run: |
@@ -39,11 +41,15 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def force_login_sync(url, name, email, password):
-              print(f'>>> [{name}] 启动...')
+          def active_login_sync(url, name, p_email, p_password):
+              if not url:
+                  print(f'❌ Error: [{name}] 未配置链接')
+                  return
+
+              print(f'>>> [{name}] 启动浏览器...')
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
-                  # 开启视频录制
+                  # 开启录像
                   context = browser.new_context(
                       user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                       viewport={'width': 1920, 'height': 1080},
@@ -52,60 +58,95 @@ jobs:
                   page = context.new_page()
                   
                   try:
-                      print(f'>>> [{name}] 访问链接...')
+                      print(f'>>> [{name}] 1. 访问 Excel 页面...')
                       page.goto(url, timeout=90000)
-                      time.sleep(5)
+                      # 等待页面加载
+                      page.wait_for_load_state('networkidle')
+                      time.sleep(10)
+
+                      # 截图：刚进去的样子
+                      page.screenshot(path=f'{name}_1_entry.png')
+
+                      # --- 关键步骤：主动点击 Sign in ---
+                      print(f'>>> [{name}] 2. 寻找并点击登录按钮...')
                       
-                      # 1. 检测并处理登录
-                      # 因为是特定分享，微软一定会跳转到 login.live.com
-                      if 'login.live' in page.url or page.locator('input[type=\"email\"]').count() > 0:
-                          print(f'>>> [{name}] 检测到登录页，开始登录...')
+                      login_triggered = False
+                      
+                      # 尝试点击页面右上角或黄条里的 'Sign in'
+                      # 我们使用不区分大小写的文本匹配
+                      try:
+                          # 优先找右上角的链接
+                          if page.get_by_role('button', name='Sign in').count() > 0:
+                              print('   -> 点击了 Sign in 按钮')
+                              page.get_by_role('button', name='Sign in').first.click()
+                              login_triggered = True
+                          elif page.get_by_text('Sign in').count() > 0:
+                              print('   -> 点击了 Sign in 文本')
+                              page.get_by_text('Sign in').first.click()
+                              login_triggered = True
+                          else:
+                              print('   -> 未找到 Sign in 文字，尝试找头像区域...')
+                              # 有时候是一个人像图标
+                              page.locator('#O365_MainLink_Me').click()
+                              time.sleep(1)
+                              if page.get_by_text('Sign in').count() > 0:
+                                   page.get_by_text('Sign in').first.click()
+                                   login_triggered = True
+                      except Exception as e:
+                          print(f'   点击尝试异常: {e}')
+
+                      
+                      # --- 阶段 2: 登录流程 ---
+                      if login_triggered:
+                          print(f'>>> [{name}] 3. 等待登录框弹出...')
+                          time.sleep(5)
                           
                           # 输入邮箱
-                          page.fill('input[type=\"email\"]', email)
-                          page.click('input[type=\"submit\"]')
-                          time.sleep(2)
-                          
-                          # 输入密码
-                          if page.locator('input[type=\"password\"]').count() > 0:
-                              print(f'>>> [{name}] 输入密码...')
-                              page.fill('input[type=\"password\"]', password)
+                          if page.locator('input[type=\"email\"]').count() > 0:
+                              print(f'   -> 输入邮箱...')
+                              page.fill('input[type=\"email\"]', p_email)
                               page.click('input[type=\"submit\"]')
                               time.sleep(2)
                           
-                          # 保持登录
-                          if page.get_by_text('Stay signed in?').count() > 0 or page.get_by_text('保持登录状态').count() > 0:
-                              print(f'>>> [{name}] 点击保持登录...')
-                              try:
-                                  page.click('input[id=\"idSIButton9\"]')
-                              except:
-                                  page.keyboard.press('Enter')
+                          # 输入密码
+                          if page.locator('input[type=\"password\"]').count() > 0:
+                              print(f'   -> 输入密码...')
+                              page.fill('input[type=\"password\"]', p_password)
+                              page.click('input[type=\"submit\"]') # 登录
+                              time.sleep(2)
                           
-                          print(f'>>> [{name}] 登录提交完成，等待跳转...')
+                          # 保持登录
+                          print(f'   -> 处理保持登录...')
+                          try:
+                              if page.get_by_text('Stay signed in?').count() > 0:
+                                  page.click('input[id=\"idSIButton9\"]') # Yes
+                              elif page.get_by_text('No').count() > 0:
+                                  page.get_by_text('No').click() # 有时候点 No 更快
+                          except:
+                              pass
+                          
+                          print(f'>>> [{name}] 4. 登录完成，等待页面重载...')
                           page.wait_for_load_state('networkidle')
                           time.sleep(15)
+                          
+                          page.screenshot(path=f'{name}_2_logged_in.png')
+                      else:
+                          print(f' [{name}] 没找到登录按钮？可能已经登录了？继续尝试同步...')
 
-                      # 2. 确认进入 Excel
-                      try:
-                          page.wait_for_selector('canvas', state='visible', timeout=60000)
-                          print(f'>>> [{name}]  成功进入 Excel！')
-                      except:
-                          print(f'>>> [{name}]  未检测到表格，可能登录失败或需要验证码。')
-                          # 截图留证
-                          page.screenshot(path=f'{name}_fail.png')
-                          return
-
-                      # 3. 强制同步 (Ctrl+End)
-                      print(f'>>> [{name}] 激活表格并同步...')
+                      # --- 阶段 3: 强制同步 ---
+                      print(f'>>> [{name}] 5. 激活表格焦点...')
                       page.mouse.click(960, 500)
                       time.sleep(1)
-                      
+
+                      print(f'>>> [{name}] 6. 发送 Ctrl+End (强制同步)...')
                       page.keyboard.press('Control+End')
-                      print(f'>>> [{name}] 已发送触底指令')
                       time.sleep(5)
                       
-                      # 4. 保持连接
-                      print(f'>>> [{name}] 保持在线 30秒...')
+                      # 截图确认到底部
+                      page.screenshot(path=f'{name}_3_bottom.png')
+
+                      # 保持活跃
+                      print(f'>>> [{name}] 7. 保持连接 30秒...')
                       for i in range(3):
                           time.sleep(10)
                           page.mouse.move(960, 500 + i*10)
@@ -123,19 +164,19 @@ jobs:
                           files = os.listdir('videos')
                           for f in files:
                               if f.endswith('.webm') and name not in f:
-                                  os.rename(os.path.join('videos', f), os.path.join('videos', f'{name}_force.webm'))
+                                  os.rename(os.path.join('videos', f), os.path.join('videos', f'{name}_click_login.webm'))
                       except:
                           pass
 
-          force_login_sync(os.environ['LINK_M'], 'M_Form', os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
-          force_login_sync(os.environ['LINK_S'], 'S_Form', os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
+          active_login_sync(os.environ['LINK_M'], 'M_Form', os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
+          active_login_sync(os.environ['LINK_S'], 'S_Form', os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
           "
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: debug-results
+          name: click-login-debug
           path: |
             videos/*.webm
             *.png
