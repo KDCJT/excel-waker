@@ -1,4 +1,4 @@
-name: Wake Up with Playwright
+name: Wake Up - Scroll to Bottom
 
 on:
   schedule:
@@ -22,8 +22,9 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      - name: Run Interaction Script
+      - name: Run Deep Scroll Script
         env:
+          # 你的链接保持不变
           LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
           LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
         run: |
@@ -32,59 +33,61 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def interact_and_sync(url, name):
-              print(f'>>> [{name}] 启动 Playwright 浏览器...')
+          def force_sync_bottom(url, name):
+              print(f'>>> [{name}] 启动浏览器...')
               with sync_playwright() as p:
-                  # 启动浏览器 (headless=True, 但设置了 UserAgent 和 Viewport)
                   browser = p.chromium.launch(headless=True)
                   context = browser.new_context(
                       user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                      viewport={'width': 1920, 'height': 1080},
-                      locale='zh-CN'
+                      viewport={'width': 1920, 'height': 1080}
                   )
                   page = context.new_page()
                   
                   try:
-                      print(f'>>> [{name}] 正在访问...')
-                      page.goto(url, timeout=60000)
-                      
-                      # 1. 等待页面加载完成
-                      print(f'>>> [{name}] 等待网络空闲...')
-                      page.wait_for_load_state('networkidle', timeout=30000)
-                      
-                      # 2. 疯狂截图 (用于调试)
-                      page.screenshot(path=f'{name}_step1_loaded.png')
-                      
-                      # 3. 模拟真人操作 (这是 Selenium 做不到的深度交互)
-                      print(f'>>> [{name}] 模拟鼠标点击和键盘操作...')
-                      
-                      # 点击页面中心 (激活焦点)
-                      page.mouse.click(960, 540)
-                      time.sleep(2)
-                      
-                      # 按下键盘方向键 (强迫 Excel 渲染单元格)
-                      page.keyboard.press('ArrowDown')
-                      time.sleep(1)
-                      page.keyboard.press('ArrowRight')
-                      time.sleep(1)
-                      
-                      # 截图确认是否有弹窗遮挡
-                      page.screenshot(path=f'{name}_step2_interacted.png')
+                      print(f'>>> [{name}] 加载网页...')
+                      page.goto(url, timeout=90000)
+                      # 等待 Excel 核心网格加载出来 (等待 canvas 元素)
+                      page.wait_for_selector('canvas', state='visible', timeout=60000)
+                      print(f'>>> [{name}] 核心组件已加载。')
+                      time.sleep(10) # 等待初始渲染
 
-                      # 4. 驻留 45 秒
-                      print(f'>>> [{name}] 保持连接 45秒 进行数据同步...')
-                      # 每 5 秒动一下鼠标
-                      for i in range(9):
-                          time.sleep(5)
-                          page.mouse.move(960 + i*10, 540 + i*10)
+                      # 1. 点击屏幕中央，确保焦点在表格上
+                      print(f'>>> [{name}] 激活表格焦点...')
+                      page.mouse.click(960, 500)
+                      time.sleep(2)
+
+                      # 2. 截图：刚进入时的样子
+                      page.screenshot(path=f'{name}_1_entry.png')
+
+                      # 3. 关键动作：按下 Ctrl+End 跳到数据最底部
+                      print(f'>>> [{name}] 发送 Ctrl+End 跳到底部...')
+                      page.keyboard.press('Control+End')
+                      time.sleep(5) # 等待跳转渲染
+
+                      # 4. 截图：跳转到底部后的样子 (确认是否真的到底了)
+                      page.screenshot(path=f'{name}_2_bottom.png')
+
+                      # 5. 模拟人工向下探索 (连续按向下键，强迫加载新行)
+                      print(f'>>> [{name}] 正在向下探测新数据...')
+                      for i in range(15):
+                          page.keyboard.press('ArrowDown')
+                          time.sleep(0.5)
                       
-                      # 最后截图
-                      page.screenshot(path=f'{name}_step3_finished.png')
+                      # 6. 保持在底部连接 60 秒
+                      print(f'>>> [{name}] 在底部保持连接 60秒，强制同步...')
+                      
+                      # 每 10 秒动一下鼠标，防止断连
+                      for i in range(6):
+                          time.sleep(10)
+                          page.mouse.move(960 + i*10, 500)
+                          print(f'    ...保持中 { (i+1)*10 }s')
+
+                      # 7. 最后截图
+                      page.screenshot(path=f'{name}_3_final.png')
                       print(f'>>> [{name}] 完成。')
 
                   except Exception as e:
                       print(f' Error: {e}')
-                      # 出错也要截图看看发生了什么
                       try:
                           page.screenshot(path=f'{name}_error.png')
                       except:
@@ -92,14 +95,13 @@ jobs:
                   finally:
                       browser.close()
 
-          interact_and_sync(os.environ['LINK_M'], 'M_Form')
-          interact_and_sync(os.environ['LINK_S'], 'S_Form')
+          force_sync_bottom(os.environ['LINK_M'], 'M_Form')
+          force_sync_bottom(os.environ['LINK_S'], 'S_Form')
           "
 
       - name: Upload Debug Screenshots
-        # 这一步会把截图打包供你下载查看，非常重要！
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: debug-screenshots
+          name: bottom-screenshots
           path: "*.png"
