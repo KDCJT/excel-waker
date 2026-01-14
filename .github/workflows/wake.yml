@@ -1,146 +1,354 @@
-name: Wake Up - Cookie Injection
-
-on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
-
-jobs:
-  playwright-wake:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Install Chinese Fonts
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-wqy-microhei
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies
-        run: |
-          pip install playwright
-          playwright install chromium
-
-      - name: Run Script with Cookies
-        env:
-          LINK_M: ${{ secrets.LINK_M }}
-          LINK_S: ${{ secrets.LINK_S }}
-          # 从 Secrets 读取 Cookie
-          COOKIE_JSON: ${{ secrets.MS_COOKIES }}
-        run: |
-          python -c "
-          import os
-          import time
-          import json
-          from playwright.sync_api import sync_playwright
-
-          def run_with_cookie(url, name, cookies_str):
-              if not url:
-                  print(f'❌ Error: [{name}] 未配置链接')
-                  return
-
-              print(f'>>> [{name}] 启动浏览器...')
-              with sync_playwright() as p:
-                  browser = p.chromium.launch(headless=True)
-                  
-                  # 开启视频录制
-                  context = browser.new_context(
-                      user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                      viewport={'width': 1920, 'height': 1080},
-                      record_video_dir='videos/'
-                  )
-                  
-                  # ★★★ 核心步骤：注入 Cookie ★★★
-                  try:
-                      cookies = json.loads(cookies_str)
-                      # 修正 Cookie 的 domain 和 path 问题，防止注入失败
-                      # Playwright 对 cookie 格式要求较严，我们只保留核心字段
-                      clean_cookies = []
-                      for c in cookies:
-                          clean_cookie = {
-                              'name': c['name'],
-                              'value': c['value'],
-                              'domain': c['domain'],
-                              'path': c['path']
-                          }
-                          clean_cookies.append(clean_cookie)
-                      
-                      context.add_cookies(clean_cookies)
-                      print(f'>>> [{name}] ✅ Cookie 注入成功！身份已伪装。')
-                  except Exception as e:
-                      print(f'❌ Cookie 解析失败: {e}')
-                      return
-
-                  page = context.new_page()
-                  
-                  try:
-                      print(f'>>> [{name}] 访问链接...')
-                      page.goto(url, timeout=90000)
-                      
-                      # 等待加载
-                      page.wait_for_selector('canvas', state='visible', timeout=60000)
-                      time.sleep(10)
-                      
-                      # 截图：检查是否还有黄色警告条？
-                      page.screenshot(path=f'{name}_1_login_check.png')
-                      
-                      # 检查是否登录成功 (寻找头像或没有 'Sign in' 按钮)
-                      print(f'>>> [{name}] 检查登录状态...')
-                      # 这里我们不管检测结果，直接执行同步操作，看视频就知道成没成
-
-                      # --- 强制触底刷新 ---
-                      print(f'>>> [{name}] 激活表格焦点...')
-                      page.mouse.click(960, 500)
-                      time.sleep(1)
-
-                      print(f'>>> [{name}] 发送 Ctrl+End (强制同步)...')
-                      page.keyboard.press('Control+End')
-                      time.sleep(5)
-                      
-                      # 模拟光标活动
-                      print(f'>>> [{name}] 保持活跃 30秒...')
-                      for i in range(3):
-                          page.keyboard.press('ArrowUp')
-                          time.sleep(1)
-                          page.keyboard.press('ArrowDown')
-                          time.sleep(9)
-
-                      print(f'>>> [{name}] 完成。')
-
-                  except Exception as e:
-                      print(f' Error: {e}')
-                  finally:
-                      context.close()
-                      browser.close()
-                      
-                      # 保存视频
-                      try:
-                          files = os.listdir('videos')
-                          for f in files:
-                              if f.endswith('.webm') and name not in f:
-                                  os.rename(os.path.join('videos', f), os.path.join('videos', f'{name}_cookie.webm'))
-                                  print(f' 视频已保存: {name}_cookie.webm')
-                                  break
-                      except:
-                          pass
-
-          # 执行任务
-          cookies = os.environ['COOKIE_JSON']
-          run_with_cookie(os.environ['LINK_M'], 'M_Form', cookies)
-          run_with_cookie(os.environ['LINK_S'], 'S_Form', cookies)
-          "
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: cookie-debug
-          path: |
-            videos/*.webm
-            *.png
+[
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "amsc",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "Ah/yv7iMDa9qlIgr92N/Nh1HaZngGjW4ZYQayooCq+iBQNmrkoA2YbjAbf6MfcTYB94WooZ9K8Igj7a6mv8N77tH9s3JrrLlzh4SgRLrb8a3vWVNaCB0HygguUK/hYUrwXLlzPOsffed36wmsOV/3DfhUZUBCjEbXd4P+VKeg2paTxkIeSG3CaLLAL/pi7/lCwmAVUcttzfpYVMk+5tC5Q84kPbdROYlH7GHEH1tfCXpPuZ2CxVsyGg6SMzEwaOQSMGM2xeDQF8fsLxV/MPcfNq9PvJ/aHGOkW7SbKBgp8S6qx3CE1jPAkddxNRz83Ij:2:3c",
+    "id": 1
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1785715233.865773,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "ANON",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "A=F068E51301ABDBAFD65198A8FFFFFFFF&E=2025&W=1",
+    "id": 2
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "E",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": true,
+    "storeId": "1",
+    "value": "P:5Tykco5T3og=:doqItxlIfJcllTj95YQ+XlCLSQFHJHYkhTqlKZKJGrA=:F",
+    "id": 3
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "fptctx2",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "taBcrIH61PuCVH7eNCyH0AHEYHVht29NHm46S5qgUjbp2JJ0q0NK8SWUCORd%252bB4DtW%252fTBapsiJ4na0Be73MQFkkJmdNIHiIUkURtnNhwFjD4fF4vXtfTOqlpjEGR29LYEL%252fdTVKPq2zml9%252fx7uxvY1JhJYI808Gcbww%252fbTR3Nfu9Lu6ZnoWvH%252fxILJbbRB26a6OGSFeECiaar23HpZ9%252fcieNN1EpxayCYgQ0HWKx2odxTHJiIbAprTb3F5CpZOfPpyu8HP9Mw2rtyVJw5iCUV3pCLUzX8pRBpFVUJ6RFysJPgIYXGfmoMMiDHklRI4ExFD1vbCtqkyyxIH1YWti2yg%253d%253d",
+    "id": 4
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1799884803.04057,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "mkt",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "zh-CN",
+    "id": 5
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "mkt1",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "zh-CN",
+    "id": 6
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1802106033.865578,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "MSPAuth",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "Disabled",
+    "id": 7
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1802106033.865642,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "MSPProf",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "Disabled",
+    "id": 8
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1799943872.517816,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "MUID",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "5e537a72d62944d581cc73b5d1729708",
+    "id": 9
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1777075233.865704,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "NAP",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "V=1.9&E=1fcb&C=i17jzLRSbL6M8aLKZq5JioNuu58bc0p5nbuIWW15FH2zSpQyE5IhMQ&W=1",
+    "id": 10
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1802106037.974491,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "PPLState",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "1",
+    "id": 11
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "rtFa",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "ueEx/zbDQ+NvUASheb0L3Sl5gogidbULQ4i03ethCrYmOTE4ODA0MGQtNmM2Ny00YzViLWIxMTItMzZhMzA0YjY2ZGFkIzEzNDEyODgzNjM0MjMxMjYwMCMwOGZhZWNhMS00MDc3LTYwMDAtNTc3My05ZWJkZjQwYTAxMGEja2RzaG91bWF5b3V4aWFuZyU0MG91dGxvb2suY29tIzE5NjYwOSNLR3RKaXkzSUozSERySnFqaFdkVDN1RFhRWHcjS0d0Sml5M0lKM0hEckpxamhXZFQzdURYUVh3hladW3gGa+EVFjwNPdeQq3JSqqG1nMfuglgxNbulAEbCcvwC+Hv3/MuqGBypflDeKuZhW+sh0BMjiDO55KA/7P2t9N3YLhBSUox7eDEQeyr1xfHG1ZOcEp+v9IBXWvelWo1HMdqJF/Yx051YBoj3BET7Kt6dDtYOu4SsWbw82HnQBmVPkHdRzDwHsimYJkmPtjmzKtpxg74TyxtH/U2/LybHKXqjFinIIJG8kwNhqko4E/fqWhLla8PouwiliWytWPzd5Wa+Ls485HRI9x//NmBkKKDFADoB/goz2zSXAFPzWJhBjyVJ+dEer4hUYW1ZPXmj/z6rzaNlbIa8feGJbNsAAAA=",
+    "id": 12
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "SIMI",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "eyJzdCI6MH0=",
+    "id": 13
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1769014840.892917,
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "wla42",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "1",
+    "value": "",
+    "id": 14
+},
+{
+    "domain": ".live.com",
+    "expirationDate": 1802106033.865915,
+    "hostOnly": false,
+    "httpOnly": true,
+    "name": "WLSSC",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "EgAvAgMAAAAMgAAAuQABJssLUd2/fp3AFe7zle0oJd19j4WSr+ZQjhnNSp18RYGSDqvqGm/2UnQH305W+JsCF2PqKzg6Yt1rYNemve2nn/rUXVdWequki5G7/J2VPquTDDdnsJzuVZFgW+LRBMxQrMpgRtQNbjBybuzuWat1qwa8lHwdn/1wr3nq9KsGRhAMYbT0DNvBlJqQT425yoXFrSQUMT2x26+7lO0vNnVuKWB8zAtBSrIel/uOQ1AV9dvMwnzGTU4Pz0nFXvQf/Kvw8R42AtlACtVdctFh+rpg8x5tmRV+ROOQYsLGouOTiDR44fTzZpk9V/lJrMw9JyHgbRxceayu3cKNP5e8/gqiQx4BgQAeAQFAAwAYrCR7sctnaVTDZ2kQJwAAChCgABAdAGtkc2hvdW1heW91eGlhbmdAb3V0bG9vay5jb20AWQAAKWtkc2hvdW1heW91eGlhbmclb3V0bG9vay5jb21AcGFzc3BvcnQuY29tAAAABENBAAAAAAAACAQCAACOrlVAAAZDAAFLAAFEAAAAAAAAAAAAAAAAAAAAAAAAj3G1bpAa0DEAALHLZ2l0at5pAAAAAAAAAAAAAAAADgAyMTAuNzkuMTUwLjE5AAQBAAAAAAAAAAAAAAAAAQQAAAAAAAAAAAAAAAAAAAAVwmbMhBcV5wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAA==",
+    "id": 15
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "xid",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": true,
+    "storeId": "1",
+    "value": "54b97761-66bb-4a70-8ff4-f1b1f3388b3d&dIWvI&ODSP-ODWEB-ODCF&46",
+    "id": 16
+},
+{
+    "domain": ".live.com",
+    "hostOnly": false,
+    "httpOnly": false,
+    "name": "xidseq",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": true,
+    "storeId": "1",
+    "value": "2",
+    "id": 17
+},
+{
+    "domain": "onedrive.live.com",
+    "expirationDate": 1783959857,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "ExcelWacDataCenter",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "1",
+    "value": "GJP2",
+    "id": 18
+},
+{
+    "domain": "onedrive.live.com",
+    "expirationDate": 1783959857,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "ExcelWacDataCenterSetTime",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "1",
+    "value": "2026-01-14T16:24:17.902Z",
+    "id": 19
+},
+{
+    "domain": "onedrive.live.com",
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "FeatureOverrides_experiments",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": true,
+    "storeId": "1",
+    "value": "[]",
+    "id": 20
+},
+{
+    "domain": "onedrive.live.com",
+    "hostOnly": true,
+    "httpOnly": true,
+    "name": "FedAuth",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "77u/PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz48U1A+VjE0LDBoLmZ8bWVtYmVyc2hpcHwwMDAzNDAwMTdiMjRhYzE4QGxpdmUuY29tLDAjLmZ8bWVtYmVyc2hpcHxrZHNob3VtYXlvdXhpYW5nQG91dGxvb2suY29tLDEzNDEyODgxNDkyMDAwMDAwMCwwLDEzNDEyOTcwMDM0MjEyMTU0MSwwLjAuMC4wLDEzMTA3MjIsOTE4ODA0MGQtNmM2Ny00YzViLWIxMTItMzZhMzA0YjY2ZGFkLCwxNDcyODY3MzAzMDY4ODgwNjc4OCwwOGZhZWNhMS1lMDgxLTYwMDAtNTc3My05ZDEyYjk1MWQ2OTQsMDhmYWVjYTEtZTA4MS02MDAwLTU3NzMtOWQxMmI5NTFkNjk0LFJzdDR6RjFXekVTU2lsZ2JFRm5weWcsMCwwLDAsLCwsMjY1MDQ2Nzc0Mzk5OTk5OTk5OSwwLCwsLCwsLDAsLDE5NjYwOSxGZ1ItckdSemlSOGVBZERzeHpkRE5naE1SbTAsLHBQek9VRlhRaE1jYTJueWJMZmVmaEZNNVdqZ0R0TlRnTllpYzhVck1CYjVrR2RSVzA3Rit0VUhoNW51ZWNDbi96RFBSR09MRXZ1SWZrcUNhUVhTY0JsbkRMMTVoMmdzTHN5aUdsZ2RXTnFZVTFDY1BwL011bk9OQlZKZkRwRTlNY2tKbm03WUFteG5hL1BXLzJ4ak1PcmRLTlk2OE54MVNRdHQ4QkNNdW8zQ2JOMW1uTnlCK01JY09yc3BEL0kzSzFPZ21iZTVqcHhINlorZ0VVQzFZOGtNU0hseEN5enQyYVFadzBrV1NybDJ1eFZuUmI2TWJZUGdSNlYrZk1VM3I0aVE4OE9sZnBkdnhwUm9wY3plTGp3QWNuNmh1aEdWZTVzbVVKV2dWc0ZyRjZwZlo1cmtubnJzKzBITjBSaWRmeUttN2Zwd2hMTDdSRU15YWdZU1U4dz09PC9TUD4=",
+    "id": 21
+},
+{
+    "domain": "onedrive.live.com",
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "msal.cache.encryption",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": true,
+    "storeId": "1",
+    "value": "%7B%22id%22%3A%22019bbd73-b98d-71b4-8c9b-57a1b9021720%22%2C%22key%22%3A%22UYI9ff1Rvffhzvislw2GLVApMon8EiV-rga7YvKmJFY%22%7D",
+    "id": 22
+},
+{
+    "domain": "onedrive.live.com",
+    "expirationDate": 1799943856.744478,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "MSFPC",
+    "path": "/",
+    "sameSite": "no_restriction",
+    "secure": true,
+    "session": false,
+    "storeId": "1",
+    "value": "GUID=6af34e73f7384c879c5490c9667a95a9&HASH=6af3&LV=202601&V=4&LU=1768407854804",
+    "id": 23
+},
+{
+    "domain": "onedrive.live.com",
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "SPA_RT",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": true,
+    "storeId": "1",
+    "value": "",
+    "id": 24
+},
+{
+    "domain": "onedrive.live.com",
+    "expirationDate": 1783959857,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "WacDataCenter",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "1",
+    "value": "GJP2",
+    "id": 25
+},
+{
+    "domain": "onedrive.live.com",
+    "expirationDate": 1783959857,
+    "hostOnly": true,
+    "httpOnly": false,
+    "name": "WacDataCenterSetTime",
+    "path": "/",
+    "sameSite": "unspecified",
+    "secure": false,
+    "session": false,
+    "storeId": "1",
+    "value": "2026-01-14T16:24:17.902Z",
+    "id": 26
+}
+]
