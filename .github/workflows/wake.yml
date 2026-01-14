@@ -1,71 +1,105 @@
-name: Real Human Stare
+name: Wake Up with Playwright
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # 每5分钟运行
-  workflow_dispatch: # 允许手动点击测试
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
-  stare-at-excel:
+  playwright-wake:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Selenium
-        run: pip install selenium webdriver-manager
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium
 
-      - name: Open and Watch
+      - name: Run Interaction Script
         env:
-          # 你的原始分享链接
           LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
           LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
         run: |
           python -c "
-          from selenium import webdriver
-          from selenium.webdriver.chrome.options import Options
-          import time
           import os
+          import time
+          from playwright.sync_api import sync_playwright
 
-          def stare_at_page(url, name):
-              print(f'>>> [{name}] 启动浏览器准备围观...')
-              
-              options = Options()
-              options.add_argument('--headless')
-              # 伪装成最新的 Chrome Windows 版
-              options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
-              options.add_argument('--window-size=1920,1080')
-              
-              driver = webdriver.Chrome(options=options)
-              try:
-                  # 1. 打开原始网页
-                  print(f'>>> [{name}] 正在打开网页...')
-                  driver.get(url)
+          def interact_and_sync(url, name):
+              print(f'>>> [{name}] 启动 Playwright 浏览器...')
+              with sync_playwright() as p:
+                  # 启动浏览器 (headless=True, 但设置了 UserAgent 和 Viewport)
+                  browser = p.chromium.launch(headless=True)
+                  context = browser.new_context(
+                      user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                      viewport={'width': 1920, 'height': 1080},
+                      locale='zh-CN'
+                  )
+                  page = context.new_page()
                   
-                  # 2. 等待网页加载 (Excel Online 加载很慢，给它 15秒)
-                  time.sleep(15)
-                  print(f'>>> [{name}] 网页标题: {driver.title} (如果看到Excel字样说明加载成功)')
+                  try:
+                      print(f'>>> [{name}] 正在访问...')
+                      page.goto(url, timeout=60000)
+                      
+                      # 1. 等待页面加载完成
+                      print(f'>>> [{name}] 等待网络空闲...')
+                      page.wait_for_load_state('networkidle', timeout=30000)
+                      
+                      # 2. 疯狂截图 (用于调试)
+                      page.screenshot(path=f'{name}_step1_loaded.png')
+                      
+                      # 3. 模拟真人操作 (这是 Selenium 做不到的深度交互)
+                      print(f'>>> [{name}] 模拟鼠标点击和键盘操作...')
+                      
+                      # 点击页面中心 (激活焦点)
+                      page.mouse.click(960, 540)
+                      time.sleep(2)
+                      
+                      # 按下键盘方向键 (强迫 Excel 渲染单元格)
+                      page.keyboard.press('ArrowDown')
+                      time.sleep(1)
+                      page.keyboard.press('ArrowRight')
+                      time.sleep(1)
+                      
+                      # 截图确认是否有弹窗遮挡
+                      page.screenshot(path=f'{name}_step2_interacted.png')
 
-                  # 3. 开始'盯梢'模式 - 持续 60 秒
-                  print(f'>>> [{name}] 开始驻留监测 (60秒)...')
-                  
-                  for i in range(6):
-                      # 每10秒动一下，防止被判定为离线
-                      time.sleep(10)
-                      print(f'   ...已停留 { (i+1)*10 } 秒，正在接收数据同步...')
-                      # 模拟鼠标滚动，触发懒加载
-                      driver.execute_script('window.scrollBy(0, 100)')
-                  
-                  print(f'>>> [{name}] 监控结束，数据应已写入硬盘。')
-                  
-              except Exception as e:
-                  print(f'Error: {e}')
-              finally:
-                  driver.quit()
+                      # 4. 驻留 45 秒
+                      print(f'>>> [{name}] 保持连接 45秒 进行数据同步...')
+                      # 每 5 秒动一下鼠标
+                      for i in range(9):
+                          time.sleep(5)
+                          page.mouse.move(960 + i*10, 540 + i*10)
+                      
+                      # 最后截图
+                      page.screenshot(path=f'{name}_step3_finished.png')
+                      print(f'>>> [{name}] 完成。')
 
-          # 执行任务
-          stare_at_page(os.environ['LINK_M'], 'M问卷')
-          stare_at_page(os.environ['LINK_S'], 'S问卷')
+                  except Exception as e:
+                      print(f' Error: {e}')
+                      # 出错也要截图看看发生了什么
+                      try:
+                          page.screenshot(path=f'{name}_error.png')
+                      except:
+                          pass
+                  finally:
+                      browser.close()
+
+          interact_and_sync(os.environ['LINK_M'], 'M_Form')
+          interact_and_sync(os.environ['LINK_S'], 'S_Form')
           "
+
+      - name: Upload Debug Screenshots
+        # 这一步会把截图打包供你下载查看，非常重要！
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: debug-screenshots
+          path: "*.png"
