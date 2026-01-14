@@ -1,4 +1,4 @@
-name: Wake Up - Scroll to Bottom
+name: Wake Up - Fix Font & Scroll
 
 on:
   schedule:
@@ -12,6 +12,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
+      # ★★★ 新增：安装中文字体，解决乱码问题 ★★★
+      - name: Install Chinese Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-noto
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -22,9 +28,8 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      - name: Run Deep Scroll Script
+      - name: Run Interaction Script
         env:
-          # 你的链接保持不变
           LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
           LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
         run: |
@@ -33,7 +38,7 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def force_sync_bottom(url, name):
+          def force_sync_v2(url, name):
               print(f'>>> [{name}] 启动浏览器...')
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
@@ -46,44 +51,47 @@ jobs:
                   try:
                       print(f'>>> [{name}] 加载网页...')
                       page.goto(url, timeout=90000)
-                      # 等待 Excel 核心网格加载出来 (等待 canvas 元素)
+                      # 等待核心网格加载
                       page.wait_for_selector('canvas', state='visible', timeout=60000)
-                      print(f'>>> [{name}] 核心组件已加载。')
-                      time.sleep(10) # 等待初始渲染
+                      print(f'>>> [{name}] 网格已就绪，等待字体渲染...')
+                      time.sleep(15) 
 
-                      # 1. 点击屏幕中央，确保焦点在表格上
-                      print(f'>>> [{name}] 激活表格焦点...')
+                      # 1. 截图：刚进来的样子 (此时应该能看到中文了)
+                      page.screenshot(path=f'{name}_1_entry.png')
+
+                      # 2. 激活焦点
+                      print(f'>>> [{name}] 点击屏幕中央激活焦点...')
                       page.mouse.click(960, 500)
                       time.sleep(2)
 
-                      # 2. 截图：刚进入时的样子
-                      page.screenshot(path=f'{name}_1_entry.png')
-
-                      # 3. 关键动作：按下 Ctrl+End 跳到数据最底部
-                      print(f'>>> [{name}] 发送 Ctrl+End 跳到底部...')
-                      page.keyboard.press('Control+End')
-                      time.sleep(5) # 等待跳转渲染
-
-                      # 4. 截图：跳转到底部后的样子 (确认是否真的到底了)
-                      page.screenshot(path=f'{name}_2_bottom.png')
-
-                      # 5. 模拟人工向下探索 (连续按向下键，强迫加载新行)
-                      print(f'>>> [{name}] 正在向下探测新数据...')
-                      for i in range(15):
-                          page.keyboard.press('ArrowDown')
+                      # 3. 暴力翻页模式
+                      print(f'>>> [{name}] 开始暴力翻页 (模拟 Lazy Load)...')
+                      
+                      # 连续按 10 次 PageDown (快速翻页)
+                      for i in range(10):
+                          page.keyboard.press('PageDown')
                           time.sleep(0.5)
+                          print(f'    PageDown {i+1}/10')
                       
-                      # 6. 保持在底部连接 60 秒
-                      print(f'>>> [{name}] 在底部保持连接 60秒，强制同步...')
+                      # 再连续按 20 次 向下箭头 (精细滚动)
+                      for i in range(20):
+                          page.keyboard.press('ArrowDown')
+                          time.sleep(0.2)
                       
-                      # 每 10 秒动一下鼠标，防止断连
-                      for i in range(6):
-                          time.sleep(10)
-                          page.mouse.move(960 + i*10, 500)
-                          print(f'    ...保持中 { (i+1)*10 }s')
+                      # 最后再按一次 Ctrl+End 确保到底
+                      page.keyboard.press('Control+End')
+                      time.sleep(5)
 
-                      # 7. 最后截图
-                      page.screenshot(path=f'{name}_3_final.png')
+                      # 4. 截图：滚动后的样子 (看看行号是不是变大了)
+                      page.screenshot(path=f'{name}_2_scrolled.png')
+
+                      # 5. 保持连接
+                      print(f'>>> [{name}] 到底部保持连接 45秒...')
+                      # 稍微动动鼠标
+                      for i in range(5):
+                          time.sleep(9)
+                          page.mouse.move(960, 500 + i*10)
+
                       print(f'>>> [{name}] 完成。')
 
                   except Exception as e:
@@ -95,13 +103,13 @@ jobs:
                   finally:
                       browser.close()
 
-          force_sync_bottom(os.environ['LINK_M'], 'M_Form')
-          force_sync_bottom(os.environ['LINK_S'], 'S_Form')
+          force_sync_v2(os.environ['LINK_M'], 'M_Form')
+          force_sync_v2(os.environ['LINK_S'], 'S_Form')
           "
 
-      - name: Upload Debug Screenshots
+      - name: Upload Screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bottom-screenshots
+          name: fixed-screenshots
           path: "*.png"
