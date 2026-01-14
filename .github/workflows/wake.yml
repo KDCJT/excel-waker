@@ -1,4 +1,4 @@
-name: Wake Up - Teleport & Fix Fonts
+name: Wake Up - Edit Mode (Secret)
 
 on:
   schedule:
@@ -12,11 +12,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      # ★★★ 重点修改：安装兼容性最好的中文字体 ★★★
       - name: Install Chinese Fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-wqy-microhei fonts-wqy-zenhei xfonts-wqy
+          sudo apt-get install -y fonts-wqy-microhei
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -30,17 +29,22 @@ jobs:
 
       - name: Run Interaction Script
         env:
-          # 你的链接
-          LINK_M: "https://1drv.ms/x/c/a4392b0288bb7160/IQDctShyo6lYSanQd1pAX_8IAdX34egaBn8Su4iZFvE0THU?e=rlX9hX"
-          LINK_S: "https://1drv.ms/x/c/a4392b0288bb7160/IQAtSyDI_-NSSZUokHEGwPeNAQ0sOJutcZ9dYJUh1p2qpBE?e=sIzrB1"
+          # ★★★ 关键：从 Secrets 读取链接，不暴露在代码中 ★★★
+          LINK_M: ${{ secrets.LINK_M }}
+          LINK_S: ${{ secrets.LINK_S }}
         run: |
           python -c "
           import os
           import time
           from playwright.sync_api import sync_playwright
 
-          def teleport_sync(url, name):
-              print(f'>>> [{name}] 启动浏览器...')
+          def edit_mode_sync(url, name):
+              # 如果 Secrets 没配置，打印错误并退出
+              if not url:
+                  print(f' Error: [{name}] 未配置 Secret 链接！')
+                  return
+
+              print(f'>>> [{name}] 启动浏览器 (编辑模式)...')
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
                   context = browser.new_context(
@@ -50,50 +54,49 @@ jobs:
                   page = context.new_page()
                   
                   try:
-                      print(f'>>> [{name}] 加载网页...')
+                      print(f'>>> [{name}] 正在打开编辑链接...')
                       page.goto(url, timeout=90000)
-                      # 等待核心网格加载
+                      
+                      # 编辑模式加载比较慢，需要等待 Excel UI 出现
+                      # 我们等待 'canvas' 或者编辑栏 'FormulaBar'
+                      print(f'>>> [{name}] 等待 Excel 编辑器加载...')
                       page.wait_for_selector('canvas', state='visible', timeout=60000)
-                      print(f'>>> [{name}] 网格就绪，等待字体渲染...')
                       time.sleep(15) 
 
-                      # 1. 截图：入口状态 (检查乱码是否修复)
-                      page.screenshot(path=f'{name}_1_entry.png')
+                      # 1. 截图：确认进入了编辑界面
+                      page.screenshot(path=f'{name}_1_editor.png')
 
-                      # 2. 暴力激活焦点
-                      # 点击表格的左上角区域 (A1单元格附近)，确保选中表格
-                      print(f'>>> [{name}] 点击表格左上角激活焦点...')
-                      page.mouse.click(100, 300) 
-                      time.sleep(1)
-                      page.mouse.click(100, 300) # 双击确保万无一失
+                      # 2. 激活焦点 (点击表格中心)
+                      print(f'>>> [{name}] 激活表格...')
+                      page.mouse.click(960, 500)
                       time.sleep(1)
 
-                      # 3. 使用 Excel 原生快捷键 '瞬移'
-                      print(f'>>> [{name}] 发送 Ctrl+DownArrow (请求数据边缘)...')
-                      
-                      # 连按 5 次 Ctrl+Down，这会强迫光标跳到最后一行的最后一条数据
-                      # 这比滚动条更管用，因为它强迫服务器计算最后一行在哪里
-                      for i in range(5):
-                          page.keyboard.press('Control+ArrowDown')
-                          time.sleep(2)
-                          print(f'    瞬移跳跃 {i+1}...')
-
-                      # 为了保险，再按一次 Ctrl+End
+                      # 3. 强制触底刷新 (触发同步的核心)
+                      # 因为是编辑模式，光标跳转会强制后台拉取数据
+                      print(f'>>> [{name}] 发送 Ctrl+End 跳到数据末尾...')
                       page.keyboard.press('Control+End')
-                      time.sleep(3)
+                      time.sleep(5)
+                      
+                      # 4. 模拟人工编辑动作 (但不真的修改数据)
+                      # 只是上下左右移动光标，告诉服务器'我在线，我要看最新数据'
+                      print(f'>>> [{name}] 模拟光标活动 (Ping Server)...')
+                      for i in range(5):
+                          page.keyboard.press('ArrowUp')
+                          time.sleep(0.5)
+                          page.keyboard.press('ArrowDown')
+                          time.sleep(0.5)
 
-                      # 4. 截图：瞬移后的状态
-                      page.screenshot(path=f'{name}_2_teleported.png')
+                      # 5. 截图：确认到底
+                      page.screenshot(path=f'{name}_2_bottom.png')
 
-                      # 5. 保持连接，等待数据流回传
-                      print(f'>>> [{name}] 保持连接 45秒...')
-                      # 此时光标应该在最后一行，我们稍微左右动一下光标，维持活跃
+                      # 6. 保持连接 45 秒
+                      print(f'>>> [{name}] 保持编辑会话在线 45秒...')
                       for i in range(5):
                           time.sleep(9)
-                          page.keyboard.press('ArrowRight')
-                          page.keyboard.press('ArrowLeft')
+                          # 稍微动一下鼠标防止掉线
+                          page.mouse.move(960, 500 + i*10)
 
-                      print(f'>>> [{name}] 完成。')
+                      print(f'>>> [{name}] 同步完成。')
 
                   except Exception as e:
                       print(f' Error: {e}')
@@ -104,13 +107,13 @@ jobs:
                   finally:
                       browser.close()
 
-          teleport_sync(os.environ['LINK_M'], 'M_Form')
-          teleport_sync(os.environ['LINK_S'], 'S_Form')
+          edit_mode_sync(os.environ['LINK_M'], 'M_Form')
+          edit_mode_sync(os.environ['LINK_S'], 'S_Form')
           "
 
       - name: Upload Screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: teleport-screenshots
+          name: edit-mode-screenshots
           path: "*.png"
