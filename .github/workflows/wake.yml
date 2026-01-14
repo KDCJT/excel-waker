@@ -1,4 +1,4 @@
-name: Wake Up - Auto Login
+name: Wake Up - Active Login
 
 on:
   schedule:
@@ -27,9 +27,9 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      - name: Run Login & Sync
+      - name: Run Active Login Script
         env:
-          # 你的文件链接
+          # 你的编辑链接
           LINK_M: ${{ secrets.LINK_M }}
           LINK_S: ${{ secrets.LINK_S }}
           # 工具人账号密码
@@ -41,113 +41,126 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def login_and_sync(url, name, p_email, p_password):
+          def active_login_sync(url, name, p_email, p_password):
               if not url:
                   print(f'❌ Error: [{name}] 未配置链接')
                   return
 
-              print(f'>>> [{name}] 启动浏览器 (登录模式)...')
+              print(f'>>> [{name}] 启动浏览器...')
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
-                  # 开启视频录制，看看登录成功没
                   context = browser.new_context(
                       user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                      viewport={'width': 1920, 'height': 1080},
-                      record_video_dir='videos/'
+                      viewport={'width': 1920, 'height': 1080}
                   )
                   page = context.new_page()
                   
                   try:
-                      print(f'>>> [{name}] 访问链接，等待跳转登录页...')
+                      print(f'>>> [{name}] 1. 访问 Excel 页面...')
                       page.goto(url, timeout=90000)
+                      page.wait_for_load_state('networkidle')
                       time.sleep(5)
-
-                      # --- 阶段 1: 处理登录 ---
-                      # 检查是否跳转到了 login.live.com
-                      if 'login' in page.url or page.locator('input[type=\"email\"]').count() > 0:
-                          print(f'>>> [{name}] 检测到登录页，开始自动登录...')
-                          
-                          # 1. 输入邮箱
-                          page.fill('input[type=\"email\"]', p_email)
-                          page.click('input[type=\"submit\"]') # 点击下一步
-                          time.sleep(2)
-                          
-                          # 2. 输入密码
-                          print(f'>>> [{name}] 输入密码...')
-                          page.fill('input[type=\"password\"]', p_password)
-                          page.click('input[type=\"submit\"]') # 点击登录
-                          time.sleep(3)
-                          
-                          # 3. 处理 '保持登录' 弹窗 (有时候会出现)
-                          if page.get_by_text('Stay signed in?').count() > 0 or page.get_by_text('保持登录状态').count() > 0:
-                              print(f'>>> [{name}] 点击保持登录...')
-                              # 点击 'Yes' 或 'No' 都可以，这里选 Yes
-                              try:
-                                  page.click('input[id=\"idSIButton9\"]') 
-                              except:
-                                  page.keyboard.press('Enter')
-                          
-                          print(f'>>> [{name}] 登录操作完成，等待跳转 Excel...')
-                          page.wait_for_load_state('networkidle')
-                          time.sleep(10)
                       
-                      else:
-                          print(f'>>> [{name}] 似乎没有跳转登录页？当前URL: {page.url}')
+                      # 截图：看看刚进去是不是有'Sign in'按钮
+                      page.screenshot(path=f'{name}_1_initial.png')
 
-                      # --- 阶段 2: 确认进入 Excel ---
-                      print(f'>>> [{name}] 等待 Excel 加载...')
+                      # --- 关键修改：主动寻找并点击登录按钮 ---
+                      # Excel Online 右上角通常有 'Sign in' 文本或者按钮
+                      print(f'>>> [{name}] 2. 寻找登录入口...')
+                      
+                      login_clicked = False
+                      
+                      # 尝试策略 A: 点击右上角的 'Sign in' 文本
                       try:
-                          page.wait_for_selector('canvas', state='visible', timeout=60000)
-                          print(f'>>> [{name}] ✅ 登录成功！Excel 已加载！')
-                      except:
-                          print(f'>>> [{name}] ❌ 加载超时，可能登录被拦截或需要验证码。')
-                          page.screenshot(path=f'{name}_login_fail.png')
-                          raise Exception('Login Failed')
+                          # 查找页面上包含 'Sign in' 或 '登录' 的元素
+                          # 通常在右上角或者黄色警告条里
+                          if page.get_by_text('Sign in').count() > 0:
+                              print(f'   -> 发现 \"Sign in\" 按钮，正在点击...')
+                              page.get_by_text('Sign in').first.click()
+                              login_clicked = True
+                          elif page.get_by_text('登录').count() > 0:
+                              print(f'   -> 发现 \"登录\" 按钮，正在点击...')
+                              page.get_by_text('登录').first.click()
+                              login_clicked = True
+                      except Exception as e:
+                          print(f'   -> 点击尝试失败: {e}')
 
-                      # --- 阶段 3: 强制同步 ---
-                      # 此时我们已经是登录用户了，微软会允许同步
-                      print(f'>>> [{name}] 激活表格焦点...')
+                      # 如果点击成功，处理登录表单
+                      if login_clicked:
+                          print(f'>>> [{name}] 3. 进入登录流程...')
+                          time.sleep(5)
+                          
+                          # 输入邮箱
+                          if page.locator('input[type=\"email\"]').count() > 0:
+                              print(f'   -> 输入邮箱...')
+                              page.fill('input[type=\"email\"]', p_email)
+                              page.click('input[type=\"submit\"]')
+                              time.sleep(2)
+                          
+                          # 输入密码
+                          if page.locator('input[type=\"password\"]').count() > 0:
+                              print(f'   -> 输入密码...')
+                              page.fill('input[type=\"password\"]', p_password)
+                              page.click('input[type=\"submit\"]')
+                              time.sleep(3)
+                          
+                          # 处理 '保持登录'
+                          if page.get_by_text('Stay signed in?').count() > 0:
+                              print(f'   -> 确认保持登录...')
+                              page.click('input[id=\"idSIButton9\"]') # Yes
+                          
+                          print(f'>>> [{name}] 4. 登录完成，等待跳回 Excel...')
+                          page.wait_for_load_state('networkidle')
+                          time.sleep(15)
+                          
+                          # 截图：登录后状态
+                          page.screenshot(path=f'{name}_2_logged_in.png')
+                      else:
+                          print(f' [{name}] 未找到登录按钮，可能已经登录或界面结构不同。尝试直接操作...')
+
+                      # --- 阶段 3: 强制触底刷新 ---
+                      print(f'>>> [{name}] 5. 激活表格焦点...')
+                      # 点击屏幕中央
                       page.mouse.click(960, 500)
                       time.sleep(1)
 
-                      print(f'>>> [{name}] 触发同步 (Ctrl+End)...')
+                      print(f'>>> [{name}] 6. 发送 Ctrl+End (强制同步)...')
                       page.keyboard.press('Control+End')
                       time.sleep(5)
                       
-                      print(f'>>> [{name}] 模拟人工查阅 30秒...')
-                      for i in range(3):
-                          page.keyboard.press('ArrowUp')
-                          time.sleep(1)
+                      # 再向下探测
+                      for i in range(10):
                           page.keyboard.press('ArrowDown')
-                          time.sleep(9)
+                          time.sleep(0.2)
+
+                      # 截图：最终状态
+                      page.screenshot(path=f'{name}_3_final.png')
+
+                      # 保持连接
+                      print(f'>>> [{name}] 7. 保持连接 30秒...')
+                      for i in range(3):
+                          time.sleep(10)
+                          page.mouse.move(960, 500 + i*10)
 
                       print(f'>>> [{name}] 完成。')
 
                   except Exception as e:
                       print(f' Error: {e}')
-                  finally:
-                      context.close()
-                      browser.close()
-                      
-                      # 保存视频
                       try:
-                          files = os.listdir('videos')
-                          for f in files:
-                              if f.endswith('.webm') and name not in f:
-                                  os.rename(os.path.join('videos', f), os.path.join('videos', f'{name}_login.webm'))
-                                  print(f' 视频已保存: {name}_login.webm')
-                                  break
+                          page.screenshot(path=f'{name}_error.png')
                       except:
                           pass
+                  finally:
+                      browser.close()
 
-          login_and_sync(
+          active_login_sync(
               os.environ['LINK_M'], 
               'M_Form', 
               os.environ['BOT_EMAIL'], 
               os.environ['BOT_PASSWORD']
           )
           
-          login_and_sync(
+          active_login_sync(
               os.environ['LINK_S'], 
               'S_Form', 
               os.environ['BOT_EMAIL'], 
@@ -155,11 +168,9 @@ jobs:
           )
           "
 
-      - name: Upload Videos & Screenshots
+      - name: Upload Screenshots
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: login-debug
-          path: |
-            videos/*.webm
-            *.png
+          name: active-login-debug
+          path: "*.png"
