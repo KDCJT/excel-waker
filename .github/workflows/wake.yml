@@ -1,4 +1,4 @@
-name: Wake Up - Active Login
+name: Wake Up - Cookie Injection
 
 on:
   schedule:
@@ -27,21 +27,20 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      - name: Run Active Login Script
+      - name: Run Script with Cookies
         env:
-          # 你的编辑链接
           LINK_M: ${{ secrets.LINK_M }}
           LINK_S: ${{ secrets.LINK_S }}
-          # 工具人账号密码
-          BOT_EMAIL: ${{ secrets.BOT_EMAIL }}
-          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+          # 从 Secrets 读取 Cookie
+          COOKIE_JSON: ${{ secrets.MS_COOKIES }}
         run: |
           python -c "
           import os
           import time
+          import json
           from playwright.sync_api import sync_playwright
 
-          def active_login_sync(url, name, p_email, p_password):
+          def run_with_cookie(url, name, cookies_str):
               if not url:
                   print(f'❌ Error: [{name}] 未配置链接')
                   return
@@ -49,128 +48,99 @@ jobs:
               print(f'>>> [{name}] 启动浏览器...')
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
+                  
+                  # 开启视频录制
                   context = browser.new_context(
                       user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                      viewport={'width': 1920, 'height': 1080}
+                      viewport={'width': 1920, 'height': 1080},
+                      record_video_dir='videos/'
                   )
+                  
+                  # ★★★ 核心步骤：注入 Cookie ★★★
+                  try:
+                      cookies = json.loads(cookies_str)
+                      # 修正 Cookie 的 domain 和 path 问题，防止注入失败
+                      # Playwright 对 cookie 格式要求较严，我们只保留核心字段
+                      clean_cookies = []
+                      for c in cookies:
+                          clean_cookie = {
+                              'name': c['name'],
+                              'value': c['value'],
+                              'domain': c['domain'],
+                              'path': c['path']
+                          }
+                          clean_cookies.append(clean_cookie)
+                      
+                      context.add_cookies(clean_cookies)
+                      print(f'>>> [{name}] ✅ Cookie 注入成功！身份已伪装。')
+                  except Exception as e:
+                      print(f'❌ Cookie 解析失败: {e}')
+                      return
+
                   page = context.new_page()
                   
                   try:
-                      print(f'>>> [{name}] 1. 访问 Excel 页面...')
+                      print(f'>>> [{name}] 访问链接...')
                       page.goto(url, timeout=90000)
-                      page.wait_for_load_state('networkidle')
-                      time.sleep(5)
                       
-                      # 截图：看看刚进去是不是有'Sign in'按钮
-                      page.screenshot(path=f'{name}_1_initial.png')
-
-                      # --- 关键修改：主动寻找并点击登录按钮 ---
-                      # Excel Online 右上角通常有 'Sign in' 文本或者按钮
-                      print(f'>>> [{name}] 2. 寻找登录入口...')
+                      # 等待加载
+                      page.wait_for_selector('canvas', state='visible', timeout=60000)
+                      time.sleep(10)
                       
-                      login_clicked = False
+                      # 截图：检查是否还有黄色警告条？
+                      page.screenshot(path=f'{name}_1_login_check.png')
                       
-                      # 尝试策略 A: 点击右上角的 'Sign in' 文本
-                      try:
-                          # 查找页面上包含 'Sign in' 或 '登录' 的元素
-                          # 通常在右上角或者黄色警告条里
-                          if page.get_by_text('Sign in').count() > 0:
-                              print(f'   -> 发现 \"Sign in\" 按钮，正在点击...')
-                              page.get_by_text('Sign in').first.click()
-                              login_clicked = True
-                          elif page.get_by_text('登录').count() > 0:
-                              print(f'   -> 发现 \"登录\" 按钮，正在点击...')
-                              page.get_by_text('登录').first.click()
-                              login_clicked = True
-                      except Exception as e:
-                          print(f'   -> 点击尝试失败: {e}')
+                      # 检查是否登录成功 (寻找头像或没有 'Sign in' 按钮)
+                      print(f'>>> [{name}] 检查登录状态...')
+                      # 这里我们不管检测结果，直接执行同步操作，看视频就知道成没成
 
-                      # 如果点击成功，处理登录表单
-                      if login_clicked:
-                          print(f'>>> [{name}] 3. 进入登录流程...')
-                          time.sleep(5)
-                          
-                          # 输入邮箱
-                          if page.locator('input[type=\"email\"]').count() > 0:
-                              print(f'   -> 输入邮箱...')
-                              page.fill('input[type=\"email\"]', p_email)
-                              page.click('input[type=\"submit\"]')
-                              time.sleep(2)
-                          
-                          # 输入密码
-                          if page.locator('input[type=\"password\"]').count() > 0:
-                              print(f'   -> 输入密码...')
-                              page.fill('input[type=\"password\"]', p_password)
-                              page.click('input[type=\"submit\"]')
-                              time.sleep(3)
-                          
-                          # 处理 '保持登录'
-                          if page.get_by_text('Stay signed in?').count() > 0:
-                              print(f'   -> 确认保持登录...')
-                              page.click('input[id=\"idSIButton9\"]') # Yes
-                          
-                          print(f'>>> [{name}] 4. 登录完成，等待跳回 Excel...')
-                          page.wait_for_load_state('networkidle')
-                          time.sleep(15)
-                          
-                          # 截图：登录后状态
-                          page.screenshot(path=f'{name}_2_logged_in.png')
-                      else:
-                          print(f' [{name}] 未找到登录按钮，可能已经登录或界面结构不同。尝试直接操作...')
-
-                      # --- 阶段 3: 强制触底刷新 ---
-                      print(f'>>> [{name}] 5. 激活表格焦点...')
-                      # 点击屏幕中央
+                      # --- 强制触底刷新 ---
+                      print(f'>>> [{name}] 激活表格焦点...')
                       page.mouse.click(960, 500)
                       time.sleep(1)
 
-                      print(f'>>> [{name}] 6. 发送 Ctrl+End (强制同步)...')
+                      print(f'>>> [{name}] 发送 Ctrl+End (强制同步)...')
                       page.keyboard.press('Control+End')
                       time.sleep(5)
                       
-                      # 再向下探测
-                      for i in range(10):
-                          page.keyboard.press('ArrowDown')
-                          time.sleep(0.2)
-
-                      # 截图：最终状态
-                      page.screenshot(path=f'{name}_3_final.png')
-
-                      # 保持连接
-                      print(f'>>> [{name}] 7. 保持连接 30秒...')
+                      # 模拟光标活动
+                      print(f'>>> [{name}] 保持活跃 30秒...')
                       for i in range(3):
-                          time.sleep(10)
-                          page.mouse.move(960, 500 + i*10)
+                          page.keyboard.press('ArrowUp')
+                          time.sleep(1)
+                          page.keyboard.press('ArrowDown')
+                          time.sleep(9)
 
                       print(f'>>> [{name}] 完成。')
 
                   except Exception as e:
                       print(f' Error: {e}')
+                  finally:
+                      context.close()
+                      browser.close()
+                      
+                      # 保存视频
                       try:
-                          page.screenshot(path=f'{name}_error.png')
+                          files = os.listdir('videos')
+                          for f in files:
+                              if f.endswith('.webm') and name not in f:
+                                  os.rename(os.path.join('videos', f), os.path.join('videos', f'{name}_cookie.webm'))
+                                  print(f' 视频已保存: {name}_cookie.webm')
+                                  break
                       except:
                           pass
-                  finally:
-                      browser.close()
 
-          active_login_sync(
-              os.environ['LINK_M'], 
-              'M_Form', 
-              os.environ['BOT_EMAIL'], 
-              os.environ['BOT_PASSWORD']
-          )
-          
-          active_login_sync(
-              os.environ['LINK_S'], 
-              'S_Form', 
-              os.environ['BOT_EMAIL'], 
-              os.environ['BOT_PASSWORD']
-          )
+          # 执行任务
+          cookies = os.environ['COOKIE_JSON']
+          run_with_cookie(os.environ['LINK_M'], 'M_Form', cookies)
+          run_with_cookie(os.environ['LINK_S'], 'S_Form', cookies)
           "
 
-      - name: Upload Screenshots
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: active-login-debug
-          path: "*.png"
+          name: cookie-debug
+          path: |
+            videos/*.webm
+            *.png
