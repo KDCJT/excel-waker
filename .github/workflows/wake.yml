@@ -1,4 +1,4 @@
-name: Wake Up - Pre-Login
+name: Wake Up - Aggressive Login
 
 on:
   schedule:
@@ -39,11 +39,68 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def run_pre_login_sync(url_m, url_s, email, password):
+          def force_login_step(page, email, password, name):
+               # --- 1. 输入邮箱 ---
+              print(f'>>> [{name}] 正在输入邮箱...')
+              # 等待邮箱框出现
+              page.wait_for_selector('input[type=\"email\"]', state='visible', timeout=30000)
+              page.fill('input[type=\"email\"]', email)
+              time.sleep(1)
+
+              # --- 2. 暴力点击下一步 ---
+              print(f'>>> [{name}] 尝试点击下一步...')
+              
+              # 策略 A: 按回车 (最稳)
+              page.keyboard.press('Enter')
+              time.sleep(1)
+              
+              # 策略 B: 点击专用 ID (idSIButton9)
+              if page.locator('#idSIButton9').count() > 0:
+                  page.locator('#idSIButton9').click()
+              
+              # --- 3. 等待密码框 (验证是否成功通过) ---
+              print(f'>>> [{name}] 等待密码框出现...')
+              try:
+                  page.wait_for_selector('input[name=\"passwd\"]', state='visible', timeout=20000)
+              except:
+                  print('   -> 卡住了？再按一次回车！')
+                  page.keyboard.press('Enter')
+                  time.sleep(2)
+
+              # --- 4. 输入密码 ---
+              print(f'>>> [{name}] 正在输入密码...')
+              page.fill('input[name=\"passwd\"]', password)
+              time.sleep(1)
+              
+              # --- 5. 提交密码 ---
+              print(f'>>> [{name}] 提交登录...')
+              page.keyboard.press('Enter')
+              time.sleep(1)
+              # 再次点击专用 ID
+              if page.locator('#idSIButton9').count() > 0:
+                  page.locator('#idSIButton9').click()
+
+              # --- 6. 处理保持登录 ---
+              time.sleep(5)
+              print(f'>>> [{name}] 处理保持登录确认...')
+              # 这里的按钮 ID 也是 idSIButton9，或者 idBtn_Back (No)
+              if page.locator('#idSIButton9').count() > 0:
+                  page.locator('#idSIButton9').click()
+              elif page.locator('#idBtn_Back').count() > 0:
+                  page.locator('#idBtn_Back').click()
+              else:
+                  page.keyboard.press('Enter')
+
+              # 等待跳转完成
+              page.wait_for_load_state('networkidle')
+              print(f'>>> [{name}] 登录流程结束。')
+
+
+          def run_sync_flow(url_m, url_s, email, password):
               print(f'>>> 启动浏览器...')
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
-                  # 开启录像，记录全过程
+                  # 开启视频录制
                   context = browser.new_context(
                       user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                       viewport={'width': 1920, 'height': 1080},
@@ -52,82 +109,39 @@ jobs:
                   page = context.new_page()
                   
                   try:
-                      # --- 步骤 1: 先去微软官网登录 ---
-                      print('>>> 1. 访问 login.live.com 进行全局登录...')
+                      # 先去微软登录页
+                      print('>>> 1. 访问微软登录页...')
                       page.goto('https://login.live.com/login.srf', timeout=60000)
                       
-                      # 等待邮箱输入框
-                      page.wait_for_selector('input[type=\"email\"]', state='visible')
-                      print('   -> 输入邮箱...')
-                      page.fill('input[type=\"email\"]', email)
-                      page.click('input[type=\"submit\"]')
-                      time.sleep(2)
+                      # 执行强力登录逻辑
+                      force_login_step(page, email, password, 'Global_Login')
                       
-                      # 等待密码输入框
-                      print('   -> 输入密码...')
-                      page.fill('input[type=\"password\"]', password)
-                      page.click('input[type=\"submit\"]')
-                      time.sleep(3)
-                      
-                      # 处理 '保持登录'
-                      print('   -> 确认保持登录...')
-                      try:
-                          if page.get_by_text('Stay signed in?').count() > 0:
-                              page.click('input[id=\"idSIButton9\"]')
-                          elif page.get_by_text('No').count() > 0:
-                              page.click('input[id=\"idBtn_Back\"]') # 或者点 No
-                      except:
-                          pass
-                      
-                      page.wait_for_load_state('networkidle')
-                      print('>>> ✅ 微软账号登录完成！')
-                      time.sleep(3)
+                      time.sleep(5)
 
-
-                      # --- 步骤 2: 带着登录状态去访问 M 问卷 ---
-                      print(f'>>> 2. 访问 M 问卷 (应该自动已登录)...')
+                      # 访问 M 问卷
+                      print('>>> 2. 访问 M 问卷...')
                       page.goto(url_m, timeout=90000)
-                      
-                      # 等待 Excel 加载
                       page.wait_for_selector('canvas', state='visible', timeout=60000)
                       time.sleep(10)
                       
-                      # 截图验证：此时应该没有黄条了
-                      page.screenshot(path='M_Form_Logged_In.png')
-
-                      # 强制同步操作
-                      print('   -> 激活焦点并触底刷新...')
+                      # 触底刷新
+                      print('   -> 触底刷新...')
                       page.mouse.click(960, 500)
-                      time.sleep(1)
                       page.keyboard.press('Control+End')
                       time.sleep(5)
-                      
-                      # 保持活跃
-                      for i in range(3):
-                          page.keyboard.press('ArrowUp')
-                          time.sleep(5)
 
-
-                      # --- 步骤 3: 接着访问 S 问卷 ---
-                      print(f'>>> 3. 访问 S 问卷...')
+                      # 访问 S 问卷
+                      print('>>> 3. 访问 S 问卷...')
                       page.goto(url_s, timeout=90000)
-                      
                       page.wait_for_selector('canvas', state='visible', timeout=60000)
                       time.sleep(10)
                       
-                      page.screenshot(path='S_Form_Logged_In.png')
-                      
-                      print('   -> 激活焦点并触底刷新...')
+                      print('   -> 触底刷新...')
                       page.mouse.click(960, 500)
-                      time.sleep(1)
                       page.keyboard.press('Control+End')
                       time.sleep(5)
-                      
-                      for i in range(3):
-                          page.keyboard.press('ArrowUp')
-                          time.sleep(5)
 
-                      print('>>>  所有任务完成。')
+                      print('>>>  完成。')
 
                   except Exception as e:
                       print(f' Error: {e}')
@@ -140,11 +154,11 @@ jobs:
                           files = os.listdir('videos')
                           for f in files:
                               if f.endswith('.webm'):
-                                  os.rename(os.path.join('videos', f), os.path.join('videos', 'full_process.webm'))
+                                  os.rename(os.path.join('videos', f), os.path.join('videos', 'fixed_login.webm'))
                       except:
                           pass
 
-          run_pre_login_sync(
+          run_sync_flow(
               os.environ['LINK_M'], 
               os.environ['LINK_S'], 
               os.environ['BOT_EMAIL'], 
@@ -152,11 +166,9 @@ jobs:
           )
           "
 
-      - name: Upload Debug Evidence
+      - name: Upload Video
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pre-login-evidence
-          path: |
-            videos/*.webm
-            *.png
+          name: fixed-login-video
+          path: videos/*.webm
