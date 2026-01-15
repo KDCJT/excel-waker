@@ -1,4 +1,4 @@
-name: Wake Up - Final Fix
+name: Wake Up - Double Auth Fix
 
 on:
   schedule:
@@ -40,43 +40,70 @@ jobs:
           from playwright.sync_api import sync_playwright
 
           def solve_login(page, email, password):
-              print('>>> 1. 正在输入邮箱...')
+              print('>>> 1. 输入邮箱...')
               page.wait_for_selector('input[type=\"email\"]', state='visible')
               page.fill('input[type=\"email\"]', email)
               page.keyboard.press('Enter')
-              time.sleep(3)
+              time.sleep(4)
 
-              # 处理“其他登录方式”或直接输密码
+              # 处理“Sign in another way”
               if page.get_by_text('Use your password').is_visible():
+                  print('   -> 切换到密码模式')
                   page.get_by_text('Use your password').click()
                   time.sleep(2)
 
-              print('>>> 2. 正在输入密码...')
+              print('>>> 2. 输入密码...')
               page.wait_for_selector('input[name=\"passwd\"]', state='visible')
               page.fill('input[name=\"passwd\"]', password)
               page.keyboard.press('Enter')
-              time.sleep(5)
+              time.sleep(6)
 
-              # --- 核心修正：处理“保持登录”弹窗 ---
-              print('>>> 3. 处理 [保持登录] 询问...')
-              # 我们必须明确点击“否”，因为 GitHub 是公用环境
-              # 按钮 ID 通常是 idBtn_Back (No) 或 idSIButton9 (Yes)
-              try:
-                  if page.locator('#idBtn_Back').is_visible():
-                      print('   -> 点击 [否] (idBtn_Back)')
-                      page.locator('#idBtn_Back').click()
-                  elif page.locator('#idSIButton9').is_visible():
-                      print('   -> 点击 [是] (idSIButton9)')
-                      page.locator('#idSIButton9').click()
-                  else:
-                      print('   -> 未发现弹窗，尝试直接回车')
-                      page.keyboard.press('Enter')
-              except:
-                  pass
+              # 处理“Stay signed in?” (视频 00:07 处)
+              print('>>> 3. 处理保持登录状态...')
+              # 点击 'Yes' 按钮以维持 Session 活性
+              if page.locator('#idSIButton9').is_visible():
+                  print('   -> 点击 [Yes]')
+                  page.locator('#idSIButton9').click()
+              else:
+                  print('   -> 未发现按钮，尝试回车')
+                  page.keyboard.press('Enter')
               
-              time.sleep(5)
+              time.sleep(8)
 
-          def run_flow(url_m, url_s, email, password):
+          def sync_excel(page, url, name):
+              print(f'>>> 正在加载 {name} ...')
+              page.goto(url, timeout=120000)
+              time.sleep(15)
+
+              # 核心修正：处理 Excel 内部的黄色警告条 (视频 00:23 处)
+              # 文字通常是 'Only signed in users can sync with Forms. Please sign in...'
+              warning_text = 'Only signed in users can sync with Forms'
+              if page.get_by_text(warning_text).is_visible():
+                  print(f'⚠️ 发现黄色警告条！尝试在 Excel 内部授权...')
+                  try:
+                      # 寻找并点击警告条里的 'Please sign in' 链接
+                      page.get_by_text('Please sign in').click()
+                      print('   -> 已点击警告条内部登录链接，等待刷新...')
+                      time.sleep(15)
+                  except:
+                      pass
+
+              # 执行触底操作
+              if page.locator('canvas').is_visible():
+                  print(f' {name} 加载成功，执行同步动作...')
+                  page.mouse.click(960, 500)
+                  time.sleep(1)
+                  page.keyboard.press('Control+End')
+                  time.sleep(5)
+                  # 模拟活跃
+                  for _ in range(3):
+                      page.keyboard.press('ArrowUp')
+                      time.sleep(5)
+              else:
+                  print(f' {name} 表格未出现')
+                  page.screenshot(path=f'{name}_error.png')
+
+          def run_main():
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
                   context = browser.new_context(
@@ -87,55 +114,30 @@ jobs:
                   page = context.new_page()
                   
                   try:
-                      # 先登录
-                      print('>>> 开始登录流程...')
+                      print('>>> 开始统一登录...')
                       page.goto('https://login.live.com/login.srf')
-                      solve_login(page, email, password)
+                      solve_login(page, os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
 
-                      # 关键检查：如果跳到了帮助页面，强行拉回
-                      if 'support.microsoft.com' in page.url:
-                          print(' 警告：被重定向到了帮助页面，正在强行修正...')
-                      
-                      # --- 访问 M 问卷 ---
-                      print(f'>>> 正在访问 M 问卷...')
-                      page.goto(url_m, timeout=90000)
-                      # 即使跳到登录页也再试一次（自动识别Session）
-                      time.sleep(10)
-                      if page.locator('canvas').is_visible():
-                          print(' M 问卷加载成功！正在触底同步...')
-                          page.mouse.click(960, 500)
-                          page.keyboard.press('Control+End')
-                          time.sleep(5)
-                      else:
-                          print(' M 问卷加载失败，截图留证')
-                          page.screenshot(path='M_fail.png')
+                      # 如果被踢到帮助页面，这行代码会自动把我们带回 Excel 链接
+                      sync_excel(page, os.environ['LINK_M'], 'M_Form')
+                      sync_excel(page, os.environ['LINK_S'], 'S_Form')
 
-                      # --- 访问 S 问卷 ---
-                      print(f'>>> 正在访问 S 问卷...')
-                      page.goto(url_s, timeout=90000)
-                      time.sleep(10)
-                      if page.locator('canvas').is_visible():
-                          print(' S 问卷加载成功！正在触底同步...')
-                          page.mouse.click(960, 500)
-                          page.keyboard.press('Control+End')
-                          time.sleep(5)
-                      else:
-                          print(' S 问卷加载失败')
+                      print('>>>  流程全部执行完毕')
 
                   except Exception as e:
-                      print(f' 运行异常: {e}')
+                      print(f' 报错: {e}')
                   finally:
                       context.close()
                       browser.close()
 
-          run_flow(os.environ['LINK_M'], os.environ['LINK_S'], os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
+          run_main()
           "
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: final-fix-video
+          name: auth-fix-result
           path: |
             videos/*.webm
             *.png
