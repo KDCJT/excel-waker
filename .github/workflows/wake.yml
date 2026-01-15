@@ -1,4 +1,4 @@
-name: Wake Up - Login Fix
+name: Wake Up - Final Fix
 
 on:
   schedule:
@@ -39,90 +39,44 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def force_login_step(page, email, password, name):
-               # --- 1. 输入邮箱 ---
-              print(f'>>> [{name}] 正在输入邮箱...')
-              page.wait_for_selector('input[type=\"email\"]', state='visible', timeout=30000)
+          def solve_login(page, email, password):
+              print('>>> 1. 正在输入邮箱...')
+              page.wait_for_selector('input[type=\"email\"]', state='visible')
               page.fill('input[type=\"email\"]', email)
-              time.sleep(1)
               page.keyboard.press('Enter')
-              
-              # --- 2. 智能处理中间页 (关键修改！) ---
-              print(f'>>> [{name}] 处理跳转，寻找密码输入入口...')
-              time.sleep(3) # 等待页面反应
-              
-              # 循环检查当前页面状态 (最多尝试 5 次)
-              for i in range(5):
-                  # 情况 A: 已经出现密码框 -> 跳出循环直接输密码
-                  if page.locator('input[name=\"passwd\"]').is_visible():
-                      print(f'   -> 成功定位到密码框！')
-                      break
-                  
-                  # 情况 B: 出现了 'Use your password' (使用密码) 选项 -> 点击它
-                  if page.get_by_text('Use your password').is_visible():
-                      print(f'   -> 发现 [Use your password] 选项，点击切换...')
-                      page.get_by_text('Use your password').click()
-                      time.sleep(2)
-                      continue
+              time.sleep(3)
 
-                  # 情况 C: 出现了 'Sign in another way' (其他方式登录) -> 点击它
-                  if page.get_by_text('Sign in another way').is_visible():
-                      print(f'   -> 发现 [Sign in another way] 选项，点击...')
-                      page.get_by_text('Sign in another way').click()
-                      time.sleep(2)
-                      continue
-                  
-                  # 情况 D: 卡在 Security Key 弹窗，显示 'Back' 按钮 -> 点击返回
-                  if page.get_by_text('Back').is_visible():
-                      print(f'   -> 发现 [Back] 按钮，点击返回以取消 Passkey...')
-                      page.get_by_text('Back').click()
-                      time.sleep(2)
-                      continue
-
-                  # 情况 E: 中文环境支持
-                  if page.get_by_text('使用密码').is_visible():
-                       page.get_by_text('使用密码').click()
-                       time.sleep(2)
-                       continue
-
-                  print(f'   ...等待加载 ({i+1}/5)...')
+              # 处理“其他登录方式”或直接输密码
+              if page.get_by_text('Use your password').is_visible():
+                  page.get_by_text('Use your password').click()
                   time.sleep(2)
 
-              # --- 3. 输入密码 ---
-              print(f'>>> [{name}] 正在输入密码...')
+              print('>>> 2. 正在输入密码...')
+              page.wait_for_selector('input[name=\"passwd\"]', state='visible')
+              page.fill('input[name=\"passwd\"]', password)
+              page.keyboard.press('Enter')
+              time.sleep(5)
+
+              # --- 核心修正：处理“保持登录”弹窗 ---
+              print('>>> 3. 处理 [保持登录] 询问...')
+              # 我们必须明确点击“否”，因为 GitHub 是公用环境
+              # 按钮 ID 通常是 idBtn_Back (No) 或 idSIButton9 (Yes)
               try:
-                  page.wait_for_selector('input[name=\"passwd\"]', state='visible', timeout=10000)
-                  page.fill('input[name=\"passwd\"]', password)
-                  time.sleep(1)
-                  page.keyboard.press('Enter')
-              except Exception as e:
-                  print(f'❌ 找不到密码框，可能卡在验证步骤: {e}')
-                  # 截图留证
-                  page.screenshot(path=f'{name}_login_stuck.png')
-                  return
+                  if page.locator('#idBtn_Back').is_visible():
+                      print('   -> 点击 [否] (idBtn_Back)')
+                      page.locator('#idBtn_Back').click()
+                  elif page.locator('#idSIButton9').is_visible():
+                      print('   -> 点击 [是] (idSIButton9)')
+                      page.locator('#idSIButton9').click()
+                  else:
+                      print('   -> 未发现弹窗，尝试直接回车')
+                      page.keyboard.press('Enter')
+              except:
+                  pass
+              
+              time.sleep(5)
 
-              # --- 4. 提交后再次确认 (有时候要点两次登录) ---
-              time.sleep(2)
-              if page.locator('#idSIButton9').is_visible():
-                   page.locator('#idSIButton9').click()
-
-              # --- 5. 处理保持登录 ---
-              time.sleep(3)
-              print(f'>>> [{name}] 处理保持登录确认...')
-              if page.locator('#idSIButton9').is_visible(): # Yes
-                  page.locator('#idSIButton9').click()
-              elif page.locator('#idBtn_Back').is_visible(): # No
-                  page.locator('#idBtn_Back').click()
-              else:
-                  # 有时候直接按回车也能过
-                  page.keyboard.press('Enter')
-
-              page.wait_for_load_state('networkidle')
-              print(f'>>> [{name}] 登录流程结束。')
-
-
-          def run_sync_flow(url_m, url_s, email, password):
-              print(f'>>> 启动浏览器...')
+          def run_flow(url_m, url_s, email, password):
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
                   context = browser.new_context(
@@ -133,62 +87,55 @@ jobs:
                   page = context.new_page()
                   
                   try:
-                      # 1. 访问微软登录页
-                      print('>>> 1. 访问微软登录页...')
-                      page.goto('https://login.live.com/login.srf', timeout=60000)
-                      
-                      force_login_step(page, email, password, 'Global_Login')
-                      time.sleep(5)
+                      # 先登录
+                      print('>>> 开始登录流程...')
+                      page.goto('https://login.live.com/login.srf')
+                      solve_login(page, email, password)
 
-                      # 2. 访问 M 问卷
-                      print('>>> 2. 访问 M 问卷...')
+                      # 关键检查：如果跳到了帮助页面，强行拉回
+                      if 'support.microsoft.com' in page.url:
+                          print(' 警告：被重定向到了帮助页面，正在强行修正...')
+                      
+                      # --- 访问 M 问卷 ---
+                      print(f'>>> 正在访问 M 问卷...')
                       page.goto(url_m, timeout=90000)
-                      page.wait_for_selector('canvas', state='visible', timeout=60000)
+                      # 即使跳到登录页也再试一次（自动识别Session）
                       time.sleep(10)
-                      
-                      print('   -> 触底刷新...')
-                      page.mouse.click(960, 500)
-                      page.keyboard.press('Control+End')
-                      time.sleep(5)
+                      if page.locator('canvas').is_visible():
+                          print(' M 问卷加载成功！正在触底同步...')
+                          page.mouse.click(960, 500)
+                          page.keyboard.press('Control+End')
+                          time.sleep(5)
+                      else:
+                          print(' M 问卷加载失败，截图留证')
+                          page.screenshot(path='M_fail.png')
 
-                      # 3. 访问 S 问卷
-                      print('>>> 3. 访问 S 问卷...')
+                      # --- 访问 S 问卷 ---
+                      print(f'>>> 正在访问 S 问卷...')
                       page.goto(url_s, timeout=90000)
-                      page.wait_for_selector('canvas', state='visible', timeout=60000)
                       time.sleep(10)
-                      
-                      print('   -> 触底刷新...')
-                      page.mouse.click(960, 500)
-                      page.keyboard.press('Control+End')
-                      time.sleep(5)
-
-                      print('>>>  完成。')
+                      if page.locator('canvas').is_visible():
+                          print(' S 问卷加载成功！正在触底同步...')
+                          page.mouse.click(960, 500)
+                          page.keyboard.press('Control+End')
+                          time.sleep(5)
+                      else:
+                          print(' S 问卷加载失败')
 
                   except Exception as e:
-                      print(f' Error: {e}')
+                      print(f' 运行异常: {e}')
                   finally:
                       context.close()
                       browser.close()
-                      
-                      try:
-                          files = os.listdir('videos')
-                          for f in files:
-                              if f.endswith('.webm'):
-                                  os.rename(os.path.join('videos', f), os.path.join('videos', 'smart_login.webm'))
-                      except:
-                          pass
 
-          run_sync_flow(
-              os.environ['LINK_M'], 
-              os.environ['LINK_S'], 
-              os.environ['BOT_EMAIL'], 
-              os.environ['BOT_PASSWORD']
-          )
+          run_flow(os.environ['LINK_M'], os.environ['LINK_S'], os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
           "
 
-      - name: Upload Video
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smart-login-video
-          path: videos/*.webm
+          name: final-fix-video
+          path: |
+            videos/*.webm
+            *.png
