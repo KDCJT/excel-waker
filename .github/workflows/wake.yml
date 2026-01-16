@@ -1,4 +1,4 @@
-name: Wake Up - Final Ultimate Fix
+name: Wake Up - Deep Sync Fix
 
 on:
   schedule:
@@ -40,85 +40,87 @@ jobs:
           from playwright.sync_api import sync_playwright
 
           def solve_login(page, email, password):
-              print('>>> [步骤 1] 正在登录微软账号大门...')
+              print('>>> [步骤 1] 正在登录微软全局账号...')
               page.goto('https://login.live.com/login.srf')
               
-              # 输入邮箱
-              page.wait_for_selector('input[type=\"email\"]', state='visible')
+              page.wait_for_selector('input[type=\"email\"]')
               page.fill('input[type=\"email\"]', email)
               page.keyboard.press('Enter')
               time.sleep(3)
 
-              # 处理“Sign in another way”
               if page.get_by_text('Use your password').is_visible():
                   page.get_by_text('Use your password').click()
                   time.sleep(2)
 
-              # 输入密码
-              page.wait_for_selector('input[name=\"passwd\"]', state='visible')
+              page.wait_for_selector('input[name=\"passwd\"]')
               page.fill('input[name=\"passwd\"]', password)
-              print('   -> 密码已填入，按回车提交...')
               page.keyboard.press('Enter')
+              time.sleep(5)
+
+              print('>>> [步骤 2] 强制确认持久登录 (Stay signed in)...')
+              # 视频 00:08 处的关键点：必须确保点击到 Yes
+              try:
+                  # 尝试点击 Yes 按钮
+                  yes_btn = page.locator('#idSIButton9')
+                  if yes_btn.is_visible():
+                      yes_btn.click(force=True)
+                      print('   -> 已点击 [Yes]')
+                  else:
+                      page.keyboard.press('Enter')
+              except:
+                  page.keyboard.press('Enter')
               
-              # 关键卡点：Stay signed in? (视频 00:07 处)
-              print('>>> [步骤 2] 处理 [Stay signed in?] 页面...')
-              time.sleep(5) # 等待页面稳定
-              
-              # 使用键盘 Enter 键代替鼠标点击，绕过微软的前端点击拦截
-              # 默认焦点就在 [Yes] 按钮上
-              page.keyboard.press('Enter')
-              print('   -> 已模拟回车确认登录持久化')
-              
-              # 给足够的时间让系统完成从登录页到后台的 Session 转换
+              # 给 10 秒时间让微软完成后台 Session 写入
               time.sleep(10)
 
-          def force_sync(page, url, name):
-              print(f'>>> [步骤 3] 进入 {name} 执行同步...')
-              # 访问 Excel，设置较长的超时
+          def force_wake_excel(page, url, name):
+              print(f'>>> [步骤 3] 正在唤醒 {name} ...')
               page.goto(url, wait_until='networkidle', timeout=120000)
               
-              # 等待 20 秒，让顶部的黄色警告条和内部插件加载
-              print('   -> 等待 Excel 内部插件加载 (20s)...')
-              time.sleep(20)
+              # 等待 Excel 渲染
+              time.sleep(15)
 
-              # 检查黄色警告条：Only signed in users can sync with Forms
-              # 视频 00:23 秒处的元凶
+              # --- 核心逻辑：攻克黄色警告条 ---
               for i in range(2):
-                  if page.get_by_text('Only signed in users').is_visible() or page.get_by_text('Please sign in').is_visible():
-                      print(f'   ⚠️ 警告：检测到未同步警告条！尝试强制授权...')
+                  warning = page.get_by_text('Only signed in users can sync')
+                  signin_link = page.get_by_text('Please sign in')
+                  
+                  if warning.is_visible() or signin_link.is_visible():
+                      print(f'   ⚠️ 警告：检测到未同步黄条 (尝试 {i+1})...')
                       try:
-                          # 寻找并点击警告条内的 [Please sign in] 链接
-                          # 使用 force=True 穿透所有遮挡
-                          page.get_by_text('Please sign in').first.click(force=True)
-                          print('   -> 已点击警告条内部 Sign in 链接，等待二次加载...')
-                          time.sleep(15)
-                      except:
-                          print('   -> 点击失败，尝试直接刷新页面...')
+                          # 1. 尝试点击警告条内部链接
+                          signin_link.first.click(force=True)
+                          print('   -> 已点击警告条内 [Please sign in] 链接')
+                          time.sleep(10)
+                          # 2. 关键动作：刷新页面（这通常能强迫插件读取刚才登录的 Session）
+                          print('   -> 刷新页面以激活同步...')
                           page.reload()
                           time.sleep(15)
+                      except:
+                          page.reload()
+                          time.sleep(10)
                   else:
-                      print('    顶端警告条已消失，Session 正常。')
+                      print('    警告条已消失，Session 正常识别！')
                       break
 
-              # 执行触底操作，强制触发写入
+              # 执行触底同步
               if page.locator('canvas').is_visible():
                   print('   -> 激活表格焦点并执行 Control+End...')
-                  # 点击表格中间
                   page.mouse.click(960, 500)
-                  time.sleep(1)
+                  time.sleep(2)
                   page.keyboard.press('Control+End')
-                  time.sleep(8)
-                  # 模拟上下晃动，维持连接
+                  time.sleep(10)
+                  # 模拟上下移动，确认数据流
                   page.keyboard.press('ArrowUp')
                   time.sleep(2)
                   page.keyboard.press('ArrowDown')
                   time.sleep(5)
-                  print(f'    {name} 刷新完毕')
+                  print(f'    {name} 唤醒任务完成')
               else:
-                  print(f'    {name} 表格未正常加载，保存截图')
-                  page.screenshot(path=f'{name}_err.png')
+                  print(f'    {name} 页面加载异常，截图保存')
+                  page.screenshot(path=f'{name}_final_err.png')
 
-          def run():
+          def main():
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
                   context = browser.new_context(
@@ -131,25 +133,24 @@ jobs:
                   try:
                       solve_login(page, os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
                       
-                      # 处理 M 表
-                      force_sync(page, os.environ['LINK_M'], 'M_Form')
-                      # 处理 S 表
-                      force_sync(page, os.environ['LINK_S'], 'S_Form')
+                      # 执行两次唤醒
+                      force_wake_excel(page, os.environ['LINK_M'], 'M_Form')
+                      force_wake_excel(page, os.environ['LINK_S'], 'S_Form')
 
                   except Exception as e:
-                      print(f' 报错: {e}')
+                      print(f' 运行崩溃: {e}')
                   finally:
                       context.close()
                       browser.close()
 
-          run()
+          main()
           "
 
-      - name: Upload Debug Data
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: final-sync-evidence
+          name: deep-sync-results
           path: |
             videos/*.webm
             *.png
