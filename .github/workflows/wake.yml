@@ -1,4 +1,4 @@
-name: Wake Up - Absolute Sync Fix
+name: Wake Up - Final Ultimate Fix
 
 on:
   schedule:
@@ -40,89 +40,85 @@ jobs:
           from playwright.sync_api import sync_playwright
 
           def solve_login(page, email, password):
-              print('>>> [1/3] 正在登录微软账号...')
+              print('>>> [步骤 1] 正在登录微软账号大门...')
               page.goto('https://login.live.com/login.srf')
               
               # 输入邮箱
-              page.wait_for_selector('input[type=\"email\"]')
+              page.wait_for_selector('input[type=\"email\"]', state='visible')
               page.fill('input[type=\"email\"]', email)
               page.keyboard.press('Enter')
               time.sleep(3)
 
-              # 处理可能的“选择登录方式”
+              # 处理“Sign in another way”
               if page.get_by_text('Use your password').is_visible():
                   page.get_by_text('Use your password').click()
                   time.sleep(2)
 
               # 输入密码
-              page.wait_for_selector('input[name=\"passwd\"]')
+              page.wait_for_selector('input[name=\"passwd\"]', state='visible')
               page.fill('input[name=\"passwd\"]', password)
-              print('   -> 密码已填入，正在提交...')
+              print('   -> 密码已填入，按回车提交...')
               page.keyboard.press('Enter')
-              time.sleep(5)
-
-              # 处理“保持登录” (视频卡点)
-              print('>>> [2/3] 处理 [Stay signed in?] 确认框...')
-              # 采用更强力的选择器：尝试点击 'Yes' 按钮
-              try:
-                  # 按钮 ID 是 idSIButton9，但我们配合 text 确保万无一失
-                  yes_button = page.locator('input#idSIButton9, input[value=\"Yes\"], input[value=\"是\"]')
-                  if yes_button.first.is_visible():
-                      yes_button.first.click(force=True)
-                      print('   -> 已强制点击 [Yes]')
-                  else:
-                      page.keyboard.press('Enter')
-                      print('   -> 未发现按钮，尝试回车')
-              except:
-                  page.keyboard.press('Enter')
               
-              # 给一点跳转缓冲时间
+              # 关键卡点：Stay signed in? (视频 00:07 处)
+              print('>>> [步骤 2] 处理 [Stay signed in?] 页面...')
+              time.sleep(5) # 等待页面稳定
+              
+              # 使用键盘 Enter 键代替鼠标点击，绕过微软的前端点击拦截
+              # 默认焦点就在 [Yes] 按钮上
+              page.keyboard.press('Enter')
+              print('   -> 已模拟回车确认登录持久化')
+              
+              # 给足够的时间让系统完成从登录页到后台的 Session 转换
               time.sleep(10)
 
-          def sync_excel_force(page, url, name):
-              print(f'>>> [3/3] 正在进入 {name} 强制唤醒...')
-              page.goto(url, timeout=120000)
+          def force_sync(page, url, name):
+              print(f'>>> [步骤 3] 进入 {name} 执行同步...')
+              # 访问 Excel，设置较长的超时
+              page.goto(url, wait_until='networkidle', timeout=120000)
               
-              # 等待 15 秒让 Excel 内部插件加载
-              time.sleep(15)
-              
-              # 检查黄色警告条 (Only signed in users can sync with Forms)
-              # 这是导致数据不更新的唯一原因
-              warning_selector = 'text=\"Only signed in users can sync with Forms\"'
-              signin_link_selector = 'text=\"Please sign in\"'
-              
-              for attempt in range(3):
-                  print(f'   -> 检查同步状态 (尝试 {attempt+1})...')
-                  if page.get_by_text('Only signed in users').is_visible():
-                      print('   ⚠️ 发现同步警告条！正在点击内部 [Please sign in] 链接...')
+              # 等待 20 秒，让顶部的黄色警告条和内部插件加载
+              print('   -> 等待 Excel 内部插件加载 (20s)...')
+              time.sleep(20)
+
+              # 检查黄色警告条：Only signed in users can sync with Forms
+              # 视频 00:23 秒处的元凶
+              for i in range(2):
+                  if page.get_by_text('Only signed in users').is_visible() or page.get_by_text('Please sign in').is_visible():
+                      print(f'   ⚠️ 警告：检测到未同步警告条！尝试强制授权...')
                       try:
-                          # 寻找警告条里的登录链接并点击
+                          # 寻找并点击警告条内的 [Please sign in] 链接
+                          # 使用 force=True 穿透所有遮挡
                           page.get_by_text('Please sign in').first.click(force=True)
-                          print('   -> 已点击警告链接，等待 15 秒让数据写回...')
+                          print('   -> 已点击警告条内部 Sign in 链接，等待二次加载...')
                           time.sleep(15)
-                          # 如果点击后弹出了新的小窗口，这里会自动处理或忽略
                       except:
-                          print('   -> 点击警告链接失败，尝试刷新页面...')
+                          print('   -> 点击失败，尝试直接刷新页面...')
                           page.reload()
-                          time.sleep(10)
+                          time.sleep(15)
                   else:
-                      print('    未发现同步警告，Session 已被识别！')
+                      print('    顶端警告条已消失，Session 正常。')
                       break
 
-              # 执行触底操作 (确保触发写入)
+              # 执行触底操作，强制触发写入
               if page.locator('canvas').is_visible():
-                  print('   -> 激活表格焦点并执行 [Control+End]...')
-                  # 点击表格中心点
+                  print('   -> 激活表格焦点并执行 Control+End...')
+                  # 点击表格中间
                   page.mouse.click(960, 500)
                   time.sleep(1)
                   page.keyboard.press('Control+End')
-                  time.sleep(10)
-                  print(f'    {name} 同步流程执行完毕')
+                  time.sleep(8)
+                  # 模拟上下晃动，维持连接
+                  page.keyboard.press('ArrowUp')
+                  time.sleep(2)
+                  page.keyboard.press('ArrowDown')
+                  time.sleep(5)
+                  print(f'    {name} 刷新完毕')
               else:
-                  print(f'    {name} 页面加载异常，截图中...')
-                  page.screenshot(path=f'{name}_error.png')
+                  print(f'    {name} 表格未正常加载，保存截图')
+                  page.screenshot(path=f'{name}_err.png')
 
-          def run_main():
+          def run():
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
                   context = browser.new_context(
@@ -135,24 +131,25 @@ jobs:
                   try:
                       solve_login(page, os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
                       
-                      # 依次处理两份表
-                      sync_excel_force(page, os.environ['LINK_M'], 'M_Form')
-                      sync_excel_force(page, os.environ['LINK_S'], 'S_Form')
+                      # 处理 M 表
+                      force_sync(page, os.environ['LINK_M'], 'M_Form')
+                      # 处理 S 表
+                      force_sync(page, os.environ['LINK_S'], 'S_Form')
 
                   except Exception as e:
-                      print(f' 脚本运行崩溃: {e}')
+                      print(f' 报错: {e}')
                   finally:
                       context.close()
                       browser.close()
 
-          run_main()
+          run()
           "
 
-      - name: Upload Artifacts
+      - name: Upload Debug Data
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sync-fix-results
+          name: final-sync-evidence
           path: |
             videos/*.webm
             *.png
