@@ -1,4 +1,4 @@
-name: Wake Up - Physical Mouse Click
+name: Wake Up - Click Yes Fix
 
 on:
   schedule:
@@ -39,88 +39,89 @@ jobs:
           import time
           from playwright.sync_api import sync_playwright
 
-          def solve_login_physical(page, email, password):
+          def solve_login(page, email, password):
               print('>>> [1/3] 正在登录微软账号...')
               page.goto('https://login.live.com/login.srf')
               
+              # 1. 输入邮箱
               page.wait_for_selector('input[type=\"email\"]')
               page.fill('input[type=\"email\"]', email)
               page.keyboard.press('Enter')
-              time.sleep(4)
+              time.sleep(3)
 
-              # 处理可能的密码模式切换
+              # 2. 处理可能的密码模式切换
               if page.get_by_text('Use your password').is_visible():
                   page.get_by_text('Use your password').click()
                   time.sleep(2)
 
+              # 3. 输入密码
               page.wait_for_selector('input[name=\"passwd\"]')
               page.fill('input[name=\"passwd\"]', password)
               page.keyboard.press('Enter')
               
-              # --- 核心改进：物理模拟点击 Stay Signed In ---
-              print('>>> [2/3] 等待 [Stay signed in?] 页面稳定...')
-              # 等待那个 ID 为 idSIButton9 的按钮（Yes按钮）
-              try:
-                  btn = page.wait_for_selector('#idSIButton9', timeout=15000)
-                  if btn:
-                      # 获取按钮的物理坐标
-                      box = btn.bounding_box()
-                      if box:
-                          print(f'   -> 发现按钮位置: x={box[\"x\"]}, y={box[\"y\"]}')
-                          # 模拟真人鼠标移动到按钮中心
-                          center_x = box['x'] + box['width'] / 2
-                          center_y = box['y'] + box['height'] / 2
-                          page.mouse.move(center_x, center_y)
-                          time.sleep(1)
-                          # 物理压下鼠标并抬起，模拟最真实的点击
-                          page.mouse.down()
-                          time.sleep(0.1)
-                          page.mouse.up()
-                          print('   -> 已执行物理坐标点击 [Yes]')
-                      else:
-                          page.keyboard.press('Enter')
-              except:
-                  print('   -> 没等到按钮，尝试盲敲回车...')
-                  page.keyboard.press('Enter')
+              # --- ★★★ 核心卡点：物理点击 [Stay signed in?] ★★★ ---
+              print('>>> [2/3] 正在攻克 [Stay signed in?] 确认框...')
               
-              time.sleep(10)
-
-          def force_sync_internal(page, url, name):
-              print(f'>>> [3/3] 访问 {name} ...')
-              page.goto(url, wait_until='networkidle', timeout=120000)
-              time.sleep(20)
-
-              # 核心卡点：Excel 内部的黄色警告条
-              # 有时候我们需要点击两次才能彻底激活
-              for i in range(2):
-                  signin_btn = page.get_by_text('Please sign in')
-                  if signin_btn.is_visible():
-                      print(f'    警告：检测到黄条，尝试内部激活 ({i+1})...')
-                      # 获取黄条按钮坐标进行物理点击
-                      try:
-                          box = signin_btn.first.bounding_box()
+              # 循环尝试 3 次点击，确保点实了
+              for i in range(3):
+                  try:
+                      # 等待按钮加载 (ID 为 idSIButton9, 也就是 'Yes' 按钮)
+                      btn = page.wait_for_selector('#idSIButton9', state='visible', timeout=10000)
+                      if btn:
+                          print(f'   -> 发现按钮 (尝试 {i+1})...')
+                          # 截图留证：点击前
+                          page.screenshot(path=f'login_before_click_{i}.png')
+                          
+                          # 物理点击：先移动到按钮中心，再模拟真实点击
+                          box = btn.bounding_box()
                           if box:
-                              page.mouse.click(box['x'] + 5, box['y'] + 5)
-                              print('   -> 物理点击了 [Please sign in]')
-                              time.sleep(15)
-                              page.reload() # 刷新通常是激活 Session 的神方
-                              time.sleep(15)
-                      except:
-                          pass
+                              page.mouse.click(box['x'] + box['width']/2, box['y'] + box['height']/2)
+                              print('   -> 执行物理点击成功')
+                          else:
+                              btn.click(force=True)
+                          
+                          time.sleep(5) # 等待跳转
+                          
+                          # 检查是否还在登录页，如果不在了说明点成功了
+                          if 'login.live' not in page.url:
+                              print('   ✅ 登录成功，已跳转！')
+                              break
+                  except:
+                      print(f'   ...第 {i+1} 次点击尝试超时或失败')
+                      page.keyboard.press('Enter') # 备用回车法
+              
+              time.sleep(5)
 
-              # 触底同步动作
+          def sync_excel(page, url, name):
+              print(f'>>> [3/3] 正在执行同步: {name}')
+              page.goto(url, wait_until='networkidle', timeout=120000)
+              
+              # 等待 Excel 加载
+              time.sleep(20)
+              
+              # 检查黄条警告
+              signin_btn = page.get_by_text('Please sign in')
+              if signin_btn.is_visible():
+                  print('    依然发现黄条，尝试二次激活...')
+                  try:
+                      signin_btn.first.click(force=True)
+                      time.sleep(10)
+                      page.reload()
+                      time.sleep(15)
+                  except:
+                      pass
+
+              # 触底刷新
               if page.locator('canvas').is_visible():
-                  print('   -> 激活表格执行 Control+End...')
+                  print('   -> 激活表格执行 Control+End')
                   page.mouse.click(960, 500)
                   time.sleep(2)
                   page.keyboard.press('Control+End')
                   time.sleep(10)
-                  # 模拟活跃防止断线
-                  page.keyboard.press('ArrowDown')
-                  time.sleep(5)
-                  print(f'    {name} 同步指令已发出')
+                  print(f'    {name} 同步完成')
               else:
-                  print(f'    {name} 页面未加载 Canvas')
+                  print(f'    {name} 加载异常')
+                  page.screenshot(path=f'{name}_final_error.png')
 
           def main():
               with sync_playwright() as p:
@@ -131,12 +132,13 @@ jobs:
                       record_video_dir='videos/'
                   )
                   page = context.new_page()
+                  
                   try:
-                      solve_login_physical(page, os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
-                      force_sync_internal(page, os.environ['LINK_M'], 'M_Form')
-                      force_sync_internal(page, os.environ['LINK_S'], 'S_Form')
+                      solve_login(page, os.environ['BOT_EMAIL'], os.environ['BOT_PASSWORD'])
+                      sync_excel(page, os.environ['LINK_M'], 'M_Form')
+                      sync_excel(page, os.environ['LINK_S'], 'S_Form')
                   except Exception as e:
-                      print(f' 运行异常: {e}')
+                      print(f' 报错: {e}')
                   finally:
                       context.close()
                       browser.close()
@@ -144,11 +146,11 @@ jobs:
           main()
           "
 
-      - name: Upload Artifacts
+      - name: Upload Logs & Videos
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: physical-click-results
+          name: final-login-test
           path: |
             videos/*.webm
             *.png
