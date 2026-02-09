@@ -1,9 +1,9 @@
 name: Wake Up - Double Click Fix
 
-on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+#on:
+# schedule:
+#   - cron: '*/5 * * * *'
+#  workflow_dispatch:
 
 jobs:
   playwright-wake:
